@@ -13,7 +13,10 @@ export async function POST(request: NextRequest) {
 
   const summariesAndEmbeddings = await Promise.all(
     contents.map(async (content: string) => {
-      const [summary, embedding] = await Promise.all([ai.summarize(content), ai.embed(content)]);
+      const [summary, embedding] = await Promise.all([
+        ai.summarize(content),
+        ai.embed(content, "RETRIEVAL_DOCUMENT"),
+      ]);
       return { content, summary, embedding };
     })
   );

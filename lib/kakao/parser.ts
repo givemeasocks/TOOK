@@ -44,3 +44,33 @@ export function parseKakaoExport(text: string): RawMessage[] {
 
   return messages;
 }
+
+const BURST_GAP_MS = 2 * 60 * 1000;
+
+/**
+ * 같은 사람이 짧은 시간 안에 끊어 보낸 메시지들을 하나로 합친다.
+ * 카톡은 한 생각을 여러 메시지로 쪼개 보내는 경우가 많아서,
+ * 메시지 단위로만 처리하면 문맥이 끊기고 30자 미만 필터에 걸려 사라지기 쉽다.
+ */
+export function mergeBursts(messages: RawMessage[]): RawMessage[] {
+  const merged: RawMessage[] = [];
+
+  for (const msg of messages) {
+    const last = merged[merged.length - 1];
+    const withinBurst =
+      last &&
+      last.sender === msg.sender &&
+      last.date &&
+      msg.date &&
+      msg.date.getTime() - last.date.getTime() <= BURST_GAP_MS;
+
+    if (withinBurst && last) {
+      last.content += "\n" + msg.content;
+      last.date = msg.date;
+    } else {
+      merged.push({ ...msg });
+    }
+  }
+
+  return merged;
+}

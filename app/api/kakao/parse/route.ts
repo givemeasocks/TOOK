@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseKakaoExport } from "@/lib/kakao/parser";
+import { parseKakaoExport, mergeBursts } from "@/lib/kakao/parser";
 import { isNoiseMessage } from "@/lib/kakao/filter";
 
 const MAX_MESSAGES = 2000;
@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "text가 비어있습니다" }, { status: 400 });
   }
 
-  const parsed = parseKakaoExport(text);
+  const parsed = mergeBursts(parseKakaoExport(text));
   let contents = parsed
     .map((m) => m.content.trim())
     .filter((c) => !isNoiseMessage(c));

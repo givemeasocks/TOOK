@@ -23,31 +23,36 @@ export async function POST(request: NextRequest) {
   const supabase = getSupabaseAdmin();
   const existingCategories = await getExistingCategories(supabase);
 
-  const [summary, embedding, category] = await Promise.all([
+  const [summary, embedding, categories] = await Promise.all([
     ai.summarize(content),
-    ai.embed(content),
+    ai.embed(content, "RETRIEVAL_DOCUMENT"),
     ai.classify(content, existingCategories),
   ]);
 
-  // 기존에 없던 카테고리를 새로 만들려는 경우, 바로 저장하지 않고 사용자 확인을 받는다
-  if (!existingCategories.includes(category)) {
-    const draftId = savePendingDraft({ content, summary, embedding, proposedCategory: category, source });
+  // 후보가 2개(애매해서 중복 저장 여부를 물어야 함)거나, 기존에 없던 카테고리를 새로 만들려는 경우
+  // 바로 저장하지 않고 사용자 확인을 받는다
+  const needsConfirm = categories.length > 1 || !existingCategories.includes(categories[0]);
+  if (needsConfirm) {
+    const draftId = savePendingDraft({ content, summary, embedding, candidateCategories: categories, source });
 
-    // 의미적으로 비슷한 기존 메모도 같이 옮길지 물어보기 위해 후보를 찾아둔다
+    // 의미적으로 비슷한 기존 메모도 같이 옮길지 물어보기 위해 후보를 찾아둔다 (새 서랍 생성 케이스에서만)
     // 임계값을 search API보다 높게 잡음: 잘못된 제안으로 사용자가 엉뚱한 메모를 옮기지 않도록 방어
-    const { data: similar } = await supabase.rpc("match_memos", {
-      query_embedding: embedding,
-      match_threshold: 0.65,
-      match_count: 6,
-    });
-    const suggestedMemos = ((similar ?? []) as { id: string; summary: string; category: string; similarity: number }[])
-      .filter((m) => m.category && m.category !== category)
-      .slice(0, 5);
+    let suggestedMemos: { id: string; summary: string; category: string; similarity: number }[] = [];
+    if (categories.length === 1 && !existingCategories.includes(categories[0])) {
+      const { data: similar } = await supabase.rpc("match_memos", {
+        query_embedding: embedding,
+        match_threshold: 0.65,
+        match_count: 6,
+      });
+      suggestedMemos = ((similar ?? []) as { id: string; summary: string; category: string; similarity: number }[])
+        .filter((m) => m.category && m.category !== categories[0])
+        .slice(0, 5);
+    }
 
     return NextResponse.json({
       pending: true,
       draftId,
-      proposedCategory: category,
+      candidateCategories: categories,
       summary,
       existingCategories,
       suggestedMemos,
@@ -56,7 +61,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("memos")
-    .insert({ content, summary, embedding, category, source })
+    .insert({ content, summary, embedding, category: categories[0], source })
     .select("id, content, summary, category, source, created_at")
     .returns<Pick<MemoRow, "id" | "content" | "summary" | "category" | "source" | "created_at">[]>()
     .single();

@@ -4,10 +4,14 @@ import type { MemoRow } from "@/lib/supabase/types";
 import { takePendingDraft } from "@/lib/pendingDrafts";
 
 export async function POST(request: NextRequest) {
-  const { draftId, category, alsoMoveIds } = await request.json();
+  const { draftId, categories, alsoMoveIds } = await request.json();
 
-  if (typeof draftId !== "string" || typeof category !== "string" || !category.trim()) {
-    return NextResponse.json({ error: "draftId, category가 필요합니다" }, { status: 400 });
+  const finalCategories = Array.isArray(categories)
+    ? Array.from(new Set(categories.map((c) => (typeof c === "string" ? c.trim() : "")).filter(Boolean)))
+    : [];
+
+  if (typeof draftId !== "string" || finalCategories.length === 0) {
+    return NextResponse.json({ error: "draftId, categories가 필요합니다" }, { status: 400 });
   }
 
   const draft = takePendingDraft(draftId);
@@ -15,23 +19,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "만료되었거나 존재하지 않는 초안입니다" }, { status: 404 });
   }
 
-  const finalCategory = category.trim();
   const supabase = getSupabaseAdmin();
 
+  // 카테고리 개수만큼 같은 내용의 메모를 각각 저장한다 (예: 감정 + 일기 둘 다 저장)
   const { data, error } = await supabase
     .from("memos")
-    .insert({
-      content: draft.content,
-      summary: draft.summary,
-      embedding: draft.embedding,
-      category: finalCategory,
-      // 사용자가 제안된 것과 다른 카테고리를 골랐다면 수정으로 취급
-      category_edited: finalCategory !== draft.proposedCategory,
-      source: draft.source,
-    })
+    .insert(
+      finalCategories.map((category) => ({
+        content: draft.content,
+        summary: draft.summary,
+        embedding: draft.embedding,
+        category,
+        // 사용자가 제안된 후보 중 하나를 그대로 골랐다면 수정으로 안 침
+        category_edited: !draft.candidateCategories.includes(category),
+        source: draft.source,
+      }))
+    )
     .select("id, content, summary, category, source, created_at")
-    .returns<Pick<MemoRow, "id" | "content" | "summary" | "category" | "source" | "created_at">[]>()
-    .single();
+    .returns<Pick<MemoRow, "id" | "content" | "summary" | "category" | "source" | "created_at">[]>();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -41,11 +46,11 @@ export async function POST(request: NextRequest) {
   if (Array.isArray(alsoMoveIds) && alsoMoveIds.length > 0) {
     const { data: moved, error: moveError } = await supabase
       .from("memos")
-      .update({ category: finalCategory, category_edited: true })
+      .update({ category: finalCategories[0], category_edited: true })
       .in("id", alsoMoveIds)
       .select("id");
     if (!moveError) movedCount = moved?.length ?? 0;
   }
 
-  return NextResponse.json({ memo: data, movedCount });
+  return NextResponse.json({ memos: data, movedCount });
 }

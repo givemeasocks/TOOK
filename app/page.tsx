@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Memo = {
   id: string;
@@ -39,18 +39,20 @@ function CategorySelect({
   memo,
   drawers,
   onChange,
+  askText,
 }: {
   memo: Memo;
   drawers: Drawer[];
   onChange: (category: string) => void;
+  askText: (message: string, defaultValue?: string) => Promise<string | null>;
 }) {
   const options = Array.from(new Set([memo.category, ...drawers.map((d) => d.name)]));
   return (
     <select
       value={memo.category}
-      onChange={(e) => {
+      onChange={async (e) => {
         if (e.target.value === "__new__") {
-          const name = window.prompt("새 카테고리 이름");
+          const name = await askText("새 카테고리 이름");
           if (name?.trim()) onChange(name.trim());
           return;
         }
@@ -68,7 +70,34 @@ function CategorySelect({
   );
 }
 
+type Dialog = { kind: "prompt" | "confirm"; message: string; defaultValue?: string };
+
 export default function Home() {
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [dialogInput, setDialogInput] = useState("");
+  const dialogResolveRef = useRef<((value: string | null) => void) | null>(null);
+
+  function askText(message: string, defaultValue = ""): Promise<string | null> {
+    setDialog({ kind: "prompt", message, defaultValue });
+    setDialogInput(defaultValue);
+    return new Promise((resolve) => {
+      dialogResolveRef.current = resolve;
+    });
+  }
+
+  function askConfirm(message: string): Promise<boolean> {
+    setDialog({ kind: "confirm", message });
+    return new Promise((resolve) => {
+      dialogResolveRef.current = (value) => resolve(value !== null);
+    });
+  }
+
+  function closeDialog(value: string | null) {
+    dialogResolveRef.current?.(value);
+    dialogResolveRef.current = null;
+    setDialog(null);
+  }
+
   const [inputText, setInputText] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -159,7 +188,7 @@ export default function Home() {
 
   const [pendingDraft, setPendingDraft] = useState<{
     draftId: string;
-    proposedCategory: string;
+    candidateCategories: string[];
     summary: string;
     existingCategories: string[];
     suggestedMemos: Memo[];
@@ -206,14 +235,14 @@ export default function Home() {
     }
   }
 
-  async function confirmDraft(category: string) {
+  async function confirmDraft(categories: string[]) {
     if (!pendingDraft) return;
     const res = await fetch("/api/memos/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         draftId: pendingDraft.draftId,
-        category,
+        categories,
         alsoMoveIds: Array.from(selectedMoveIds),
       }),
     });
@@ -233,6 +262,56 @@ export default function Home() {
   const [selectedDrawer, setSelectedDrawer] = useState<string | null>(null);
   const [drawerMemos, setDrawerMemos] = useState<Memo[]>([]);
   const [drawerLoading, setDrawerLoading] = useState(false);
+
+  async function handleDeleteMemo(memo: Memo) {
+    if (!(await askConfirm("이 메모를 삭제할까요?"))) return;
+    const res = await fetch(`/api/memos/${memo.id}`, { method: "DELETE" });
+    if (!res.ok) return;
+    setCertain((list) => list.filter((m) => m.id !== memo.id));
+    setMaybe((list) => list.filter((m) => m.id !== memo.id));
+    setDrawerMemos((list) => list.filter((m) => m.id !== memo.id));
+    await loadDrawers();
+  }
+
+  async function renameDrawer(name: string) {
+    const newName = await askText("새 서랍 이름", name);
+    if (!newName?.trim() || newName.trim() === name) return;
+    const res = await fetch("/api/drawers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, newName: newName.trim() }),
+    });
+    if (!res.ok) return;
+    setSelectedDrawer(newName.trim());
+    await loadDrawers();
+    await openDrawer(newName.trim());
+  }
+
+  async function deleteDrawer(name: string, count: number) {
+    if (count > 0) {
+      const target = await askText(
+        `"${name}" 안에 메모가 ${count}개 있어요.\n옮길 서랍 이름을 입력하면 그쪽으로 옮겨요.\n빈 채로 확인하면 메모까지 전부 삭제돼요. (취소하면 아무 일도 안 일어남)`,
+        ""
+      );
+      if (target === null) return;
+      if (target.trim()) {
+        const res = await fetch("/api/drawers", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, newName: target.trim() }),
+        });
+        if (!res.ok) return;
+        closeDrawer();
+        await loadDrawers();
+        return;
+      }
+      if (!(await askConfirm(`정말 메모 ${count}개를 전부 삭제할까요? 되돌릴 수 없어요.`))) return;
+    }
+    const res = await fetch(`/api/drawers?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+    if (!res.ok) return;
+    closeDrawer();
+    await loadDrawers();
+  }
 
   async function openDrawer(name: string) {
     setPendingDraft(null);
@@ -317,73 +396,148 @@ export default function Home() {
         </div>
       )}
 
+      {dialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-ink-deep/40 px-4"
+          onClick={() => closeDialog(null)}
+        >
+          <div
+            className="w-full max-w-[22rem] rounded-lg bg-canvas p-5 shadow-[var(--shadow-4)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="whitespace-pre-line text-sm text-ink">{dialog.message}</p>
+            {dialog.kind === "prompt" && (
+              <input
+                autoFocus
+                value={dialogInput}
+                onChange={(e) => setDialogInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") closeDialog(dialogInput);
+                  if (e.key === "Escape") closeDialog(null);
+                }}
+                className="mt-3 h-10 w-full rounded-md border border-hairline-strong bg-canvas px-3 text-sm text-ink outline-none focus:border-2 focus:border-primary"
+              />
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => closeDialog(null)} className="rounded-md px-3 py-1.5 text-sm text-steel">
+                취소
+              </button>
+              <button
+                onClick={() => closeDialog(dialog.kind === "prompt" ? dialogInput : "confirmed")}
+                className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-on-primary"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {pendingDraft && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink-deep/40 px-4"
           onClick={() => setPendingDraft(null)}
         >
           <div
-            className="flex max-h-[85vh] w-full max-w-sm flex-col rounded-lg bg-canvas p-6 shadow-[var(--shadow-4)]"
+            className="flex max-h-[85vh] w-full max-w-[24rem] flex-col rounded-lg bg-canvas p-6 shadow-[var(--shadow-4)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-steel">새 서랍</span>
+              <span className="text-xs font-medium text-steel">
+                {pendingDraft.candidateCategories.length > 1 ? "카테고리 선택" : "새 서랍"}
+              </span>
               <button onClick={() => setPendingDraft(null)} className="text-sm text-steel" aria-label="닫기">
                 닫기
               </button>
             </div>
             <div className="overflow-y-auto">
               <p className="text-sm text-steel">{pendingDraft.summary}</p>
-              <p className="mt-3 text-base text-ink">
-                <span className={`inline-block rounded-sm px-2 py-0.5 text-sm font-semibold text-charcoal ${tintFor(pendingDraft.proposedCategory)}`}>
-                  {pendingDraft.proposedCategory}
-                </span>
-                {" "}서랍을 새로 만들까요?
-              </p>
 
-              {pendingDraft.suggestedMemos.length > 0 && (
-                <div className="mt-4">
-                  <p className="mb-2 text-xs text-steel">비슷한 메모도 같이 옮길까요?</p>
-                  <div className="flex flex-col gap-1.5">
-                    {pendingDraft.suggestedMemos.map((m) => (
-                      <label key={m.id} className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selectedMoveIds.has(m.id)}
-                          onChange={() => toggleMoveId(m.id)}
-                          className="mt-1 accent-primary"
-                        />
-                        <span className="text-ink">
-                          {m.summary}
-                          <span className="ml-1 text-xs text-muted">(현재: {m.category})</span>
+              {pendingDraft.candidateCategories.length > 1 ? (
+                <>
+                  <p className="mt-3 text-sm text-ink">
+                    {pendingDraft.candidateCategories.map((c, i) => (
+                      <span key={c}>
+                        {i > 0 && " / "}
+                        <span className={`inline-block rounded-sm px-2 py-0.5 text-sm font-semibold text-charcoal ${tintFor(c)}`}>
+                          {c}
                         </span>
-                      </label>
+                      </span>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={() => confirmDraft(pendingDraft.proposedCategory)}
-                className="mt-4 h-11 w-full rounded-md bg-primary text-sm font-medium text-on-primary"
-              >
-                네, 새로 만들기
-              </button>
-              {pendingDraft.existingCategories.length > 0 && (
-                <div className="mt-3">
-                  <p className="mb-2 text-xs text-steel">아니면 기존 서랍에 넣기</p>
-                  <div className="flex flex-wrap gap-2">
-                    {pendingDraft.existingCategories.map((c) => (
+                    {" "}둘 다에 해당할 수 있어요. 어디에 저장할까요?
+                  </p>
+                  <div className="mt-4 flex flex-col gap-2">
+                    {pendingDraft.candidateCategories.map((c) => (
                       <button
                         key={c}
-                        onClick={() => confirmDraft(c)}
-                        className={`rounded-sm px-2 py-1 text-xs font-semibold text-charcoal ${tintFor(c)}`}
+                        onClick={() => confirmDraft([c])}
+                        className="h-11 w-full rounded-md border border-hairline-strong text-sm font-medium text-ink"
                       >
-                        {c}
+                        {c}에만 저장
                       </button>
                     ))}
+                    <button
+                      onClick={() => confirmDraft(pendingDraft.candidateCategories)}
+                      className="h-11 w-full rounded-md bg-primary text-sm font-medium text-on-primary"
+                    >
+                      둘 다 저장
+                    </button>
                   </div>
-                </div>
+                </>
+              ) : (
+                <>
+                  <p className="mt-3 text-base text-ink">
+                    <span className={`inline-block rounded-sm px-2 py-0.5 text-sm font-semibold text-charcoal ${tintFor(pendingDraft.candidateCategories[0])}`}>
+                      {pendingDraft.candidateCategories[0]}
+                    </span>
+                    {" "}서랍을 새로 만들까요?
+                  </p>
+
+                  {pendingDraft.suggestedMemos.length > 0 && (
+                    <div className="mt-4">
+                      <p className="mb-2 text-xs text-steel">비슷한 메모도 같이 옮길까요?</p>
+                      <div className="flex flex-col gap-1.5">
+                        {pendingDraft.suggestedMemos.map((m) => (
+                          <label key={m.id} className="flex items-start gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selectedMoveIds.has(m.id)}
+                              onChange={() => toggleMoveId(m.id)}
+                              className="mt-1 accent-primary"
+                            />
+                            <span className="text-ink">
+                              {m.summary}
+                              <span className="ml-1 text-xs text-muted">(현재: {m.category})</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => confirmDraft([pendingDraft.candidateCategories[0]])}
+                    className="mt-4 h-11 w-full rounded-md bg-primary text-sm font-medium text-on-primary"
+                  >
+                    네, 새로 만들기
+                  </button>
+                  {pendingDraft.existingCategories.length > 0 && (
+                    <div className="mt-3">
+                      <p className="mb-2 text-xs text-steel">아니면 기존 서랍에 넣기</p>
+                      <div className="flex flex-wrap gap-2">
+                        {pendingDraft.existingCategories.map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => confirmDraft([c])}
+                            className={`rounded-sm px-2 py-1 text-xs font-semibold text-charcoal ${tintFor(c)}`}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -396,14 +550,25 @@ export default function Home() {
           onClick={closeDrawer}
         >
           <div
-            className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg bg-canvas p-6 shadow-[var(--shadow-4)]"
+            className="flex max-h-[80vh] w-full max-w-[32rem] flex-col rounded-lg bg-canvas p-6 shadow-[var(--shadow-4)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex items-center justify-between gap-2">
               <h3 className="text-lg font-semibold text-ink">{selectedDrawer}</h3>
-              <button onClick={closeDrawer} className="text-sm text-steel">
-                닫기
-              </button>
+              <div className="flex shrink-0 items-center gap-3">
+                <button onClick={() => renameDrawer(selectedDrawer)} className="text-xs text-steel underline">
+                  이름 바꾸기
+                </button>
+                <button
+                  onClick={() => deleteDrawer(selectedDrawer, drawerMemos.length)}
+                  className="text-xs text-error underline"
+                >
+                  서랍 삭제
+                </button>
+                <button onClick={closeDrawer} className="text-sm text-steel">
+                  닫기
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto">
               {drawerLoading ? (
@@ -413,14 +578,24 @@ export default function Home() {
               ) : (
                 <div className="flex flex-col gap-2">
                   {drawerMemos.map((m) => (
-                    <div key={m.id} className="rounded-lg border border-hairline bg-canvas p-4">
-                      <CategorySelect
-                        memo={m}
-                        drawers={drawers}
-                        onChange={(c) => handleCategoryChange(m, c)}
-                      />
-                      {m.category_edited && <span className="ml-1 text-xs text-muted">(수정됨)</span>}
-                      <p className="text-sm text-ink">{m.summary}</p>
+                    <div key={m.id} className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4">
+                      <div>
+                        <CategorySelect
+                          memo={m}
+                          drawers={drawers}
+                          onChange={(c) => handleCategoryChange(m, c)}
+                          askText={askText}
+                        />
+                        {m.category_edited && <span className="ml-1 text-xs text-muted">(수정됨)</span>}
+                        <p className="text-sm text-ink">{m.summary}</p>
+                      </div>
+                      <button
+                        aria-label="메모 삭제"
+                        onClick={() => handleDeleteMemo(m)}
+                        className="shrink-0 text-xs text-muted hover:text-error"
+                      >
+                        삭제
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -563,6 +738,8 @@ export default function Home() {
               memos={certain}
               drawers={drawers}
               onCategoryChange={handleCategoryChange}
+              onDelete={handleDeleteMemo}
+              askText={askText}
               query={query}
               votes={votes}
               onVote={handleVote}
@@ -572,6 +749,8 @@ export default function Home() {
               memos={maybe}
               drawers={drawers}
               onCategoryChange={handleCategoryChange}
+              onDelete={handleDeleteMemo}
+              askText={askText}
               query={query}
               votes={votes}
               onVote={handleVote}
@@ -605,6 +784,8 @@ function ResultGroup({
   memos,
   drawers,
   onCategoryChange,
+  onDelete,
+  askText,
   query,
   votes,
   onVote,
@@ -614,6 +795,8 @@ function ResultGroup({
   memos: Memo[];
   drawers: Drawer[];
   onCategoryChange: (memo: Memo, newCategory: string) => void;
+  onDelete: (memo: Memo) => void;
+  askText: (message: string, defaultValue?: string) => Promise<string | null>;
   query: string;
   votes: Record<string, boolean>;
   onVote: (memo: Memo, relevant: boolean) => void;
@@ -632,7 +815,7 @@ function ResultGroup({
               className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4"
             >
               <div>
-                <CategorySelect memo={m} drawers={drawers} onChange={(c) => onCategoryChange(m, c)} />
+                <CategorySelect memo={m} drawers={drawers} onChange={(c) => onCategoryChange(m, c)} askText={askText} />
                 {m.category_edited && <span className="ml-1 text-xs text-muted">(수정됨)</span>}
                 <p className="text-sm text-ink">{m.summary}</p>
               </div>
@@ -651,6 +834,13 @@ function ResultGroup({
                   className={`rounded-sm px-1 text-base ${voted === false ? "opacity-100" : "opacity-40 hover:opacity-100"}`}
                 >
                   👎
+                </button>
+                <button
+                  aria-label="메모 삭제"
+                  onClick={() => onDelete(m)}
+                  className="text-xs text-muted hover:text-error"
+                >
+                  삭제
                 </button>
               </div>
             </div>

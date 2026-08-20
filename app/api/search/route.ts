@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "q가 비어있습니다" }, { status: 400 });
   }
 
-  const embedding = await ai.embed(query);
+  const embedding = await ai.embed(query, "RETRIEVAL_QUERY");
   const supabase = getSupabaseAdmin();
 
   const { data, error } = await supabase.rpc("match_memos", {
