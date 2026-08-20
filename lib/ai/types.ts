@@ -11,4 +11,9 @@ export interface AIProvider {
   classify(text: string, existingCategories: string[]): Promise<string[]>;
   /** 카톡 임포트용 일괄 분류. 반환 배열은 texts와 같은 길이·순서를 보장해야 한다 */
   classifyBatch(texts: string[], existingCategories: string[]): Promise<string[]>;
+  /**
+   * 벡터 검색으로 추린 후보를 실제 검색어 관련성 기준 0~1 점수로 재채점한다.
+   * 순수 코사인 유사도보다 정밀한 최종 판단용. candidates와 같은 길이·순서를 보장해야 한다.
+   */
+  rerank(query: string, candidates: string[]): Promise<number[]>;
 }

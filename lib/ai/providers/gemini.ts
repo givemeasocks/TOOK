@@ -140,4 +140,47 @@ ${numbered}`,
     }
     return categories.map((c) => (c ?? "미분류").trim());
   }
+
+  async rerank(query: string, candidates: string[]): Promise<number[]> {
+    if (candidates.length === 0) return [];
+    const numbered = candidates.map((c, i) => `${i + 1}. ${c}`).join("\n");
+
+    const res = await getClient().models.generateContent({
+      model: AI_CONFIG.summaryModel,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `너는 개인 메모 검색의 재랭킹 판정기다. 사용자가 "${query}"로 검색했다.
+
+아래 메모 후보 ${candidates.length}개 각각이 이 검색어와 실제로 관련 있는지 0~1 사이 점수로 판단해라.
+- 1에 가까울수록 확실히 관련 있음, 0에 가까울수록 무관함
+- 검색어와 글자가 안 겹쳐도 의미적으로 관련 있으면 높은 점수를 줘라 (예: "술" 검색에 "위스키", "와인" 메모는 관련 있음)
+- 검색어와 무관한 내용인데 우연히 비슷한 분위기라서 걸린 것뿐이면 낮은 점수를 줘라
+- scores 배열은 반드시 입력 순서대로, 정확히 ${candidates.length}개를 반환해라
+
+메모 후보:
+${numbered}`,
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: { scores: { type: Type.ARRAY, items: { type: Type.NUMBER } } },
+          required: ["scores"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(res.text ?? "{}");
+    const scores: unknown[] = Array.isArray(parsed.scores) ? parsed.scores : [];
+    if (scores.length !== candidates.length) {
+      throw new Error(`재랭킹 응답 개수가 안 맞음: ${scores.length} !== ${candidates.length}`);
+    }
+    return scores.map((s) => Math.max(0, Math.min(1, typeof s === "number" ? s : 0)));
+  }
 }

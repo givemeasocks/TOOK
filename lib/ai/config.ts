@@ -6,6 +6,7 @@
 export const AI_CONFIG = {
   summaryModel: process.env.AI_SUMMARY_MODEL || "gemini-flash-lite-latest",
   embeddingModel: process.env.AI_EMBEDDING_MODEL || "gemini-embedding-001",
-  // supabase/schema.sql의 memos.embedding 컬럼 차원(vector(768))과 반드시 일치해야 함
-  embeddingDimensions: 768,
+  // supabase/schema.sql의 memos.embedding 컬럼 차원(vector(3072))과 반드시 일치해야 함
+  // gemini-embedding-001의 전체 차원을 그대로 씀 (768로 자르면 짧은 한국어 텍스트에서 관련/무관 유사도 차이가 너무 좁아짐)
+  embeddingDimensions: 3072,
 } as const;
