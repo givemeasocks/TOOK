@@ -5,7 +5,7 @@ type PendingDraft = {
   summary: string;
   embedding: number[];
   candidateCategories: string[];
-  source: "manual" | "kakao";
+  source: "manual";
   createdAt: number;
 };
 

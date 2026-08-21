@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ai } from "@/lib/ai";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/serverClient";
 
 type MatchRow = {
   id: string;
@@ -14,6 +14,9 @@ type MatchRow = {
 };
 
 export async function GET(request: NextRequest) {
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
   const params = request.nextUrl.searchParams;
   const query = params.get("q");
   const thresholdA = Number(params.get("a") ?? "0.72");
@@ -24,13 +27,13 @@ export async function GET(request: NextRequest) {
   }
 
   const embedding = await ai.embed(query, "RETRIEVAL_QUERY");
-  const supabase = getSupabaseAdmin();
 
   // 1단계: 벡터 검색으로 폭넓게 후보를 추린다 (재현율 우선, 임계값은 낮게 — 최종 판단은 2단계에서 함)
   const { data, error } = await supabase.rpc("match_memos", {
     query_embedding: embedding,
     match_threshold: 0.3,
     match_count: 20,
+    p_user_id: user.id,
   });
 
   if (error) {

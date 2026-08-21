@@ -4,6 +4,6 @@ export type MemoRow = {
   summary: string | null;
   category: string | null;
   category_edited: boolean;
-  source: "manual" | "kakao";
+  source: "manual";
   created_at: string;
 };

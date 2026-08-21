@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/serverClient";
 
 export async function POST(request: NextRequest) {
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
   const { query, memo_id, relevant, similarity } = await request.json();
 
   if (typeof query !== "string" || typeof memo_id !== "string" || typeof relevant !== "boolean") {
     return NextResponse.json({ error: "query, memo_id, relevant가 필요합니다" }, { status: 400 });
   }
 
-  const supabase = getSupabaseAdmin();
   const { error } = await supabase
     .from("eval_logs")
-    .insert({ query, memo_id, relevant, similarity: similarity ?? null });
+    .insert({ query, memo_id, relevant, similarity: similarity ?? null, user_id: user.id });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -22,7 +24,8 @@ export async function POST(request: NextRequest) {
 type EvalLog = { query: string; relevant: boolean; similarity: number | null };
 
 export async function GET() {
-  const supabase = getSupabaseAdmin();
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
 
   const [{ data: logs, error: logsError }, { data: memos, error: memosError }] = await Promise.all([
     supabase.from("eval_logs").select("query, relevant, similarity"),

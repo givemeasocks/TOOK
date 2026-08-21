@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ai } from "@/lib/ai";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/serverClient";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MemoRow } from "@/lib/supabase/types";
 import { savePendingDraft } from "@/lib/pendingDrafts";
 
-async function getExistingCategories(supabase: ReturnType<typeof getSupabaseAdmin>) {
+async function getExistingCategories(supabase: SupabaseClient) {
   const { data: categoryRows } = await supabase
     .from("memos")
     .select("category")
@@ -14,13 +15,16 @@ async function getExistingCategories(supabase: ReturnType<typeof getSupabaseAdmi
 }
 
 export async function POST(request: NextRequest) {
-  const { content, source = "manual" } = await request.json();
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
+  const { content } = await request.json();
+  const source = "manual" as const;
 
   if (typeof content !== "string" || !content.trim()) {
     return NextResponse.json({ error: "content가 비어있습니다" }, { status: 400 });
   }
 
-  const supabase = getSupabaseAdmin();
   const existingCategories = await getExistingCategories(supabase);
 
   const [summary, embedding, categories] = await Promise.all([
@@ -29,53 +33,39 @@ export async function POST(request: NextRequest) {
     ai.classify(content, existingCategories),
   ]);
 
-  // 후보가 2개(애매해서 중복 저장 여부를 물어야 함)거나, 기존에 없던 카테고리를 새로 만들려는 경우
-  // 바로 저장하지 않고 사용자 확인을 받는다
-  const needsConfirm = categories.length > 1 || !existingCategories.includes(categories[0]);
-  if (needsConfirm) {
-    const draftId = savePendingDraft({ content, summary, embedding, candidateCategories: categories, source });
+  // AI가 어디로 분류했든, 실제로 그 서랍에 넣기 전에 항상 사용자 확인을 받는다
+  const draftId = savePendingDraft({ content, summary, embedding, candidateCategories: categories, source });
 
-    // 의미적으로 비슷한 기존 메모도 같이 옮길지 물어보기 위해 후보를 찾아둔다 (새 서랍 생성 케이스에서만)
-    // 임계값을 search API보다 높게 잡음: 잘못된 제안으로 사용자가 엉뚱한 메모를 옮기지 않도록 방어
-    let suggestedMemos: { id: string; summary: string; category: string; similarity: number }[] = [];
-    if (categories.length === 1 && !existingCategories.includes(categories[0])) {
-      const { data: similar } = await supabase.rpc("match_memos", {
-        query_embedding: embedding,
-        match_threshold: 0.65,
-        match_count: 6,
-      });
-      suggestedMemos = ((similar ?? []) as { id: string; summary: string; category: string; similarity: number }[])
-        .filter((m) => m.category && m.category !== categories[0])
-        .slice(0, 5);
-    }
-
-    return NextResponse.json({
-      pending: true,
-      draftId,
-      candidateCategories: categories,
-      summary,
-      existingCategories,
-      suggestedMemos,
+  // 의미적으로 비슷한 기존 메모도 같이 옮길지 물어보기 위해 후보를 찾아둔다 (새 서랍 생성 케이스에서만)
+  // 임계값을 search API보다 높게 잡음: 잘못된 제안으로 사용자가 엉뚱한 메모를 옮기지 않도록 방어
+  let suggestedMemos: { id: string; summary: string; category: string; similarity: number }[] = [];
+  if (categories.length === 1 && !existingCategories.includes(categories[0])) {
+    const { data: similar } = await supabase.rpc("match_memos", {
+      query_embedding: embedding,
+      match_threshold: 0.65,
+      match_count: 6,
+      p_user_id: user.id,
     });
+    suggestedMemos = ((similar ?? []) as { id: string; summary: string; category: string; similarity: number }[])
+      .filter((m) => m.category && m.category !== categories[0])
+      .slice(0, 5);
   }
 
-  const { data, error } = await supabase
-    .from("memos")
-    .insert({ content, summary, embedding, category: categories[0], source })
-    .select("id, content, summary, category, source, created_at")
-    .returns<Pick<MemoRow, "id" | "content" | "summary" | "category" | "source" | "created_at">[]>()
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ memo: data });
+  return NextResponse.json({
+    pending: true,
+    draftId,
+    candidateCategories: categories,
+    summary,
+    existingCategories,
+    suggestedMemos,
+  });
 }
 
 export async function GET(request: NextRequest) {
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
   const category = request.nextUrl.searchParams.get("category");
-  const supabase = getSupabaseAdmin();
 
   let query = supabase
     .from("memos")

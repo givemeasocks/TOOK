@@ -88,59 +88,6 @@ ${text}`,
     return cleaned.length > 0 ? cleaned : ["미분류"];
   }
 
-  async classifyBatch(texts: string[], existingCategories: string[]): Promise<string[]> {
-    if (texts.length === 0) return [];
-    const categoryList = existingCategories.length
-      ? existingCategories.join(", ")
-      : "(아직 없음)";
-    const numbered = texts.map((t, i) => `${i + 1}. ${t}`).join("\n");
-
-    const res = await getClient().models.generateContent({
-      model: AI_CONFIG.summaryModel,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: `너는 개인 메모 아카이브의 분류기다. 아래 메모 ${texts.length}개 각각을 생활 영역 기준 카테고리 하나로 분류해.
-
-규칙:
-- 기존 카테고리 목록에 의미가 맞는 게 있으면 반드시 그걸 그대로 재사용해라
-- 기존 카테고리 중 어느 것도 그 메모의 실제 내용과 맞지 않으면, 내용에 맞는 새 카테고리를 만들어라. 억지로 기존 카테고리에 끼워 맞추지 마라
-- 카테고리명은 "술", "레시피", "일정", "상식", "쇼핑"처럼 생활 영역 기준의 짧은 명사 1~2단어로 — 이건 형식 예시일 뿐, 실제로 써야 할 단어 목록이 아니다. 메모마다 내용에 맞는 이름을 자유롭게 만들어라
-- 과분할 금지: 이미 있는 카테고리와 의미가 겹치면 새로 만들지 말고 기존 걸 써라. 하지만 의미가 다르면 절대 기존 카테고리에 욱여넣지 마라
-- categories 배열은 반드시 입력 순서대로, 정확히 ${texts.length}개를 반환해라
-
-기존 카테고리 목록: ${categoryList}
-
-메모 목록:
-${numbered}`,
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            categories: { type: Type.ARRAY, items: { type: Type.STRING } },
-          },
-          required: ["categories"],
-        },
-      },
-    });
-
-    const parsed = JSON.parse(res.text ?? "{}");
-    const categories: string[] = Array.isArray(parsed.categories) ? parsed.categories : [];
-
-    if (categories.length !== texts.length) {
-      // 배치 응답 개수가 어긋나면 안전하게 하나씩 재시도 (일괄 임포트는 메모당 카테고리 1개만 씀)
-      return Promise.all(texts.map(async (t) => (await this.classify(t, existingCategories))[0]));
-    }
-    return categories.map((c) => (c ?? "미분류").trim());
-  }
-
   async rerank(query: string, candidates: string[]): Promise<number[]> {
     if (candidates.length === 0) return [];
     const numbered = candidates.map((c, i) => `${i + 1}. ${c}`).join("\n");
@@ -182,5 +129,98 @@ ${numbered}`,
       throw new Error(`재랭킹 응답 개수가 안 맞음: ${scores.length} !== ${candidates.length}`);
     }
     return scores.map((s) => Math.max(0, Math.min(1, typeof s === "number" ? s : 0)));
+  }
+
+  async suggestMerges(
+    categories: { name: string; count: number }[]
+  ): Promise<{ into: string; from: string[] }[]> {
+    if (categories.length < 2) return [];
+    const listed = categories.map((c) => `- ${c.name} (${c.count}개)`).join("\n");
+
+    const res = await getClient().models.generateContent({
+      model: AI_CONFIG.summaryModel,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `너는 개인 메모 아카이브의 카테고리(서랍) 목록을 정리하는 담당자다. 아래는 현재 서랍 목록과 각 서랍에 든 메모 개수다.
+
+과분할된 서랍(같은 내용을 가리키는데 이름만 다르게 쪼개진 것)을 찾아 병합을 제안해라.
+
+규칙:
+- 예: "위스키"와 "술"은 같은 생활 영역을 가리키므로 병합 대상. 하지만 "레시피"와 "쇼핑"처럼 서로 다른 생활 영역이면 절대 합치지 마라
+- 이름만 다르고 실질적으로 같은 뜻(동의어, 오타, 존재하나 마나 한 세분화)일 때만 묶어라. 사용자가 의도적으로 세분화했을 수 있는 경우(예: "위스키"가 이미 12개나 쌓여 독립된 관심사로 보이면)는 무리하게 합치지 마라
+- 묶을 땐 그 그룹에서 메모 개수가 가장 많거나 더 일반적인 이름을 into로 선택해라
+- 애매하면 병합하지 마라. 병합 대상이 없으면 빈 배열을 반환해라
+- 한 서랍은 최대 한 그룹에만 속해야 한다
+
+서랍 목록:
+${listed}`,
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            merges: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  into: { type: Type.STRING },
+                  from: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+                required: ["into", "from"],
+              },
+            },
+          },
+          required: ["merges"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(res.text ?? "{}");
+    const raw: unknown[] = Array.isArray(parsed.merges) ? parsed.merges : [];
+    const validNames = new Set(categories.map((c) => c.name));
+    const used = new Set<string>();
+    const merges: { into: string; from: string[] }[] = [];
+
+    for (const m of raw) {
+      if (typeof m !== "object" || m === null) continue;
+      const { into, from } = m as { into?: unknown; from?: unknown };
+      if (typeof into !== "string" || !validNames.has(into) || used.has(into)) continue;
+      const cleanedFrom = Array.from(new Set(Array.isArray(from) ? from : []))
+        .filter((f): f is string => typeof f === "string" && validNames.has(f) && f !== into && !used.has(f));
+      if (cleanedFrom.length === 0) continue;
+      used.add(into);
+      cleanedFrom.forEach((f) => used.add(f));
+      merges.push({ into, from: cleanedFrom });
+    }
+    return merges;
+  }
+
+  async ocr(imageBase64: string, mimeType: string): Promise<string> {
+    const res = await getClient().models.generateContent({
+      model: AI_CONFIG.summaryModel,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inlineData: { data: imageBase64, mimeType } },
+            {
+              text: `이 이미지(스크린샷 또는 사진)에서 읽을 수 있는 텍스트를 전부 추출해줘.
+- 설명·요약 없이 원문 텍스트만 그대로 출력해
+- UI 버튼 라벨, 상태바, 앱 로고처럼 메모 내용과 무관한 화면 요소는 빼고 실제 내용에 해당하는 텍스트만
+- 읽을 수 있는 텍스트가 전혀 없으면 아무것도 출력하지 마`,
+            },
+          ],
+        },
+      ],
+    });
+    return (res.text ?? "").trim();
   }
 }

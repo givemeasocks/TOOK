@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/serverClient";
 import type { MemoRow } from "@/lib/supabase/types";
 import { takePendingDraft } from "@/lib/pendingDrafts";
 
 export async function POST(request: NextRequest) {
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
   const { draftId, categories, alsoMoveIds } = await request.json();
 
   const finalCategories = Array.isArray(categories)
@@ -19,8 +22,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "만료되었거나 존재하지 않는 초안입니다" }, { status: 404 });
   }
 
-  const supabase = getSupabaseAdmin();
-
   // 카테고리 개수만큼 같은 내용의 메모를 각각 저장한다 (예: 감정 + 일기 둘 다 저장)
   const { data, error } = await supabase
     .from("memos")
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
         // 사용자가 제안된 후보 중 하나를 그대로 골랐다면 수정으로 안 침
         category_edited: !draft.candidateCategories.includes(category),
         source: draft.source,
+        user_id: user.id,
       }))
     )
     .select("id, content, summary, category, source, created_at")

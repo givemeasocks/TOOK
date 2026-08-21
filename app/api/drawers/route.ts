@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/serverClient";
 import type { MemoRow } from "@/lib/supabase/types";
 
 export async function GET() {
-  const supabase = getSupabaseAdmin();
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
   const { data, error } = await supabase
     .from("memos")
     .select("category")
@@ -29,13 +31,15 @@ export async function GET() {
 
 /** 서랍(카테고리) 이름을 일괄 변경한다. 잘못 만들어진 카테고리명을 고칠 때 씀. */
 export async function PATCH(request: NextRequest) {
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
   const { name, newName } = await request.json();
 
   if (typeof name !== "string" || !name.trim() || typeof newName !== "string" || !newName.trim()) {
     return NextResponse.json({ error: "name, newName이 필요합니다" }, { status: 400 });
   }
 
-  const supabase = getSupabaseAdmin();
   const { error, count } = await supabase
     .from("memos")
     .update({ category: newName.trim(), category_edited: true }, { count: "exact" })
@@ -50,13 +54,15 @@ export async function PATCH(request: NextRequest) {
 
 /** 서랍(카테고리)을 통째로 삭제한다. 안에 있던 메모도 함께 삭제됨 — 잘못 생성된 서랍 정리용. */
 export async function DELETE(request: NextRequest) {
+  const { supabase, user } = await requireUser();
+  if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+
   const name = request.nextUrl.searchParams.get("name");
 
   if (!name || !name.trim()) {
     return NextResponse.json({ error: "name이 필요합니다" }, { status: 400 });
   }
 
-  const supabase = getSupabaseAdmin();
   const { error, count } = await supabase
     .from("memos")
     .delete({ count: "exact" })
