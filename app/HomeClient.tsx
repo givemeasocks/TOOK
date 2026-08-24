@@ -551,6 +551,9 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     await loadDrawers();
   }
 
+  // 검색해서 확실한 결과를 찾은 순간도 "메인 모션"급으로 잠깐 화면 전체에 크게 보여준다.
+  const [foundSplash, setFoundSplash] = useState(false);
+
   async function handleSearch() {
     if (!query.trim()) return;
     setSearching(true);
@@ -566,6 +569,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       setCertain(certain);
       setMaybe(maybe);
       setSearched(true);
+      if (certain.length > 0) {
+        setFoundSplash(true);
+        setTimeout(() => setFoundSplash(false), 1200);
+      }
     } finally {
       setSearching(false);
     }
@@ -584,12 +591,17 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         </div>
       )}
 
-      {toast && !biting && (
+      {/* 에러도 구석의 작은 아이콘 하나로는 잘 안 보여서, 저장 모션과 똑같이 화면 전체로 보여준다. */}
+      {toast && toast.variant === "error" && !biting && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/character/horse-tilt-head.svg" alt="" className="h-64 w-64 max-w-[70vw]" />
+          <p className="text-lg font-semibold text-ink">{toast.text}</p>
+        </div>
+      )}
+
+      {toast && toast.variant === "success" && !biting && (
         <div className="fixed top-6 right-6 z-50 flex items-center gap-2 rounded-md bg-ink-deep px-4 py-2 text-sm text-on-dark shadow-[var(--shadow-4)]">
-          {toast.variant === "error" && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src="/character/horse-tilt-head.svg" alt="" className="h-6 w-6" />
-          )}
           {toast.text}
         </div>
       )}
@@ -1109,6 +1121,14 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             {searching ? "검색 중..." : "검색"}
           </button>
         </div>
+
+        {foundSplash && (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/character/horse-excited.svg" alt="" className="h-64 w-64 max-w-[70vw]" />
+            <p className="text-lg font-semibold text-ink">찾았어요!</p>
+          </div>
+        )}
 
         {searched && (
           <div className="mt-6 flex flex-col gap-6">

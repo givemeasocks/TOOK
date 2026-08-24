@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { EMOTIONS, emojiFor } from "@/lib/emotions";
+import { EMOTIONS, emojiFor, characterFor } from "@/lib/emotions";
 
 type EntryRow = { entry_date: string; emotion: string; source: "auto" | "manual" };
 type DayMemo = { id: string; content: string; summary: string | null; created_at: string; category: string | null };
@@ -150,6 +150,13 @@ export default function EmotionCalendar() {
                 닫기
               </button>
             </div>
+
+            {dayEntry && (
+              <div className="mb-3 flex justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={characterFor(dayEntry.emotion) ?? undefined} alt="" className="h-28 w-28" />
+              </div>
+            )}
 
             <div className="mb-4 flex items-center gap-2">
               {EMOTIONS.map((e) => (
