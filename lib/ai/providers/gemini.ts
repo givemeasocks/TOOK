@@ -266,4 +266,49 @@ ${numbered}`,
     const parsed = JSON.parse(res.text ?? "{}");
     return isEmotionKey(parsed.emotion) ? parsed.emotion : null;
   }
+
+  async extractSchedule(text: string, todayIso: string): Promise<{ date: string; label: string } | null> {
+    const res = await getClient().models.generateContent({
+      model: AI_CONFIG.summaryModel,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `너는 개인 아카이브 앱의 일정 감지 담당이다. 오늘은 ${todayIso}(YYYY-MM-DD)다. 아래 메모가 특정 하루의
+일정/약속/이벤트를 말하고 있는지 판단해라.
+
+규칙:
+- "다음주 화요일", "내일", "9월 1일"처럼 상대적/절대적 날짜 표현이 있으면 오늘(${todayIso}) 기준으로 실제 날짜(YYYY-MM-DD)를 계산해라
+- "매주 목요일", "매달 1일"처럼 반복되는 일정은 다루지 않는다 — isSchedule을 false로 반환해라
+- 날짜를 특정할 수 없거나(예: "조만간", "나중에") 애매하면 isSchedule을 false로 반환해라 (정확도 우선)
+- 단순 일기/감정/정보 메모(일정과 무관)면 isSchedule을 false로 반환해라
+- isSchedule이 true면 label에 일정 내용을 10자 내외로 짧게 요약해라 (예: "치과 예약", "민수 생일")
+
+메모:
+${text}`,
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isSchedule: { type: Type.BOOLEAN },
+            date: { type: Type.STRING, nullable: true },
+            label: { type: Type.STRING, nullable: true },
+          },
+          required: ["isSchedule"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(res.text ?? "{}");
+    if (!parsed.isSchedule) return null;
+    if (typeof parsed.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) return null;
+    if (typeof parsed.label !== "string" || !parsed.label.trim()) return null;
+    return { date: parsed.date, label: parsed.label.trim() };
+  }
 }

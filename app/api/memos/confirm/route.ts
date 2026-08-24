@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
   const { supabase, user } = await requireUser();
   if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
 
-  const { draftId, categories, alsoMoveIds } = await request.json();
+  const { draftId, categories, alsoMoveIds, eventDate, remindDayBefore } = await request.json();
 
   const finalCategories = Array.isArray(categories)
     ? Array.from(new Set(categories.map((c) => (typeof c === "string" ? c.trim() : "")).filter(Boolean)))
@@ -21,6 +21,10 @@ export async function POST(request: NextRequest) {
   if (!draft) {
     return NextResponse.json({ error: "만료되었거나 존재하지 않는 초안입니다" }, { status: 404 });
   }
+
+  // 캘린더에 추가할지도 항상 사용자 확인을 거친 뒤에만 반영한다 (AI가 일정을 감지해도 자동 반영 안 함)
+  const useEventDate = typeof eventDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(eventDate) ? eventDate : null;
+  const useRemindDayBefore = useEventDate !== null && remindDayBefore === true;
 
   // 카테고리 개수만큼 같은 내용의 메모를 각각 저장한다 (예: 감정 + 일기 둘 다 저장). 순서를 category와
   // 확실히 맞추려고 하나씩 insert한다 (많아야 2개라 성능 문제 없음).
@@ -38,6 +42,8 @@ export async function POST(request: NextRequest) {
         category_edited: !draft.candidateCategories.includes(category),
         source: draft.source,
         user_id: user.id,
+        event_date: useEventDate,
+        remind_day_before: useRemindDayBefore,
       })
       .select("id, content, summary, source, created_at")
       .single();

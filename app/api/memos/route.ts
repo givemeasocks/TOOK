@@ -4,6 +4,7 @@ import { ai } from "@/lib/ai";
 import { requireUser } from "@/lib/supabase/serverClient";
 import { findDrawerIdByName, listMemberDrawers } from "@/lib/drawers";
 import { savePendingDraft } from "@/lib/pendingDrafts";
+import { kstDateString } from "@/lib/kstDate";
 
 async function getExistingCategories(supabase: SupabaseClient, userId: string) {
   const drawers = await listMemberDrawers(supabase, userId);
@@ -23,10 +24,11 @@ export async function POST(request: NextRequest) {
 
   const existingCategories = await getExistingCategories(supabase, user.id);
 
-  const [summary, embedding, categories] = await Promise.all([
+  const [summary, embedding, categories, schedule] = await Promise.all([
     ai.summarize(content),
     ai.embed(content, "RETRIEVAL_DOCUMENT"),
     ai.classify(content, existingCategories),
+    ai.extractSchedule(content, kstDateString()),
   ]);
 
   // AI가 어디로 분류했든, 실제로 그 서랍에 넣기 전에 항상 사용자 확인을 받는다
@@ -54,6 +56,7 @@ export async function POST(request: NextRequest) {
     summary,
     existingCategories,
     suggestedMemos,
+    schedule,
   });
 }
 

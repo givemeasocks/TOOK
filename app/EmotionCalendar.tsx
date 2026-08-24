@@ -5,6 +5,7 @@ import { EMOTIONS, emojiFor } from "@/lib/emotions";
 
 type EntryRow = { entry_date: string; emotion: string; source: "auto" | "manual" };
 type DayMemo = { id: string; content: string; summary: string | null; created_at: string; category: string | null };
+type DayEvent = { id: string; content: string; summary: string | null; remind_day_before: boolean; category: string | null };
 
 function toMonthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -17,11 +18,13 @@ function toDateKey(year: number, month: number, day: number) {
 export default function EmotionCalendar() {
   const [cursor, setCursor] = useState(() => new Date());
   const [entries, setEntries] = useState<Map<string, EntryRow>>(new Map());
+  const [eventDates, setEventDates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dayEntry, setDayEntry] = useState<EntryRow | null>(null);
   const [dayMemos, setDayMemos] = useState<DayMemo[]>([]);
+  const [dayEvents, setDayEvents] = useState<DayEvent[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -30,8 +33,12 @@ export default function EmotionCalendar() {
     try {
       const res = await fetch(`/api/emotions?month=${toMonthKey(d)}`);
       if (!res.ok) return;
-      const { entries: rows } = (await res.json()) as { entries: EntryRow[] };
+      const { entries: rows, eventDates: eventDateRows } = (await res.json()) as {
+        entries: EntryRow[];
+        eventDates: string[];
+      };
       setEntries(new Map(rows.map((r) => [r.entry_date, r])));
+      setEventDates(new Set(eventDateRows));
     } finally {
       setLoading(false);
     }
@@ -47,9 +54,10 @@ export default function EmotionCalendar() {
     try {
       const res = await fetch(`/api/emotions?date=${dateKey}`);
       if (!res.ok) return;
-      const { entry, memos } = await res.json();
+      const { entry, memos, events } = await res.json();
       setDayEntry(entry);
       setDayMemos(memos);
+      setDayEvents(events);
     } finally {
       setDayLoading(false);
     }
@@ -59,6 +67,7 @@ export default function EmotionCalendar() {
     setSelectedDate(null);
     setDayEntry(null);
     setDayMemos([]);
+    setDayEvents([]);
   }
 
   async function setEmotion(emotion: string) {
@@ -111,14 +120,16 @@ export default function EmotionCalendar() {
           if (day === null) return <div key={`empty-${i}`} />;
           const dateKey = toDateKey(year, month, day);
           const entry = entries.get(dateKey);
+          const hasEvent = eventDates.has(dateKey);
           return (
             <button
               key={dateKey}
               onClick={() => openDay(dateKey)}
-              className="flex aspect-square flex-col items-center justify-center rounded-md text-xs text-ink hover:bg-surface"
+              className="relative flex aspect-square flex-col items-center justify-center rounded-md text-xs text-ink hover:bg-surface"
             >
               <span className="text-[10px] text-muted">{day}</span>
               <span className="text-base leading-none">{entry ? emojiFor(entry.emotion) : ""}</span>
+              {hasEvent && <span className="absolute bottom-1 h-1 w-1 rounded-full bg-primary" />}
             </button>
           );
         })}
@@ -160,6 +171,23 @@ export default function EmotionCalendar() {
             )}
 
             <div className="flex-1 overflow-y-auto">
+              {!dayLoading && dayEvents.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-2 text-xs font-medium text-steel">📅 이날 일정</p>
+                  <div className="flex flex-col gap-2">
+                    {dayEvents.map((ev) => (
+                      <div key={ev.id} className="rounded-lg border border-primary/40 bg-surface p-3">
+                        <p className="text-sm text-ink">{ev.summary ?? ev.content}</p>
+                        <p className="mt-1 text-xs text-muted">
+                          {ev.category}
+                          {ev.remind_day_before && " · 🔔 하루 전 알림"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {dayLoading ? (
                 <p className="text-sm text-steel">불러오는 중...</p>
               ) : dayMemos.length === 0 ? (

@@ -243,8 +243,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     summary: string;
     existingCategories: string[];
     suggestedMemos: Memo[];
+    schedule: { date: string; label: string } | null;
   } | null>(null);
   const [selectedMoveIds, setSelectedMoveIds] = useState<Set<string>>(new Set());
+  const [addToCalendar, setAddToCalendar] = useState(false);
+  const [remindDayBefore, setRemindDayBefore] = useState(false);
 
   function toggleMoveId(id: string) {
     setSelectedMoveIds((prev) => {
@@ -291,6 +294,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       setPendingDraft(data);
       setSelectedMoveIds(new Set());
       setExtraCategories(new Set());
+      setAddToCalendar(false);
+      setRemindDayBefore(false);
       setInputText("");
     } finally {
       setSaving(false);
@@ -352,13 +357,17 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         draftId: pendingDraft.draftId,
         categories,
         alsoMoveIds: Array.from(selectedMoveIds),
+        eventDate: addToCalendar ? pendingDraft.schedule?.date : undefined,
+        remindDayBefore,
       }),
     });
     setPendingDraft(null);
     setSelectedMoveIds(new Set());
     setExtraCategories(new Set());
+    setAddToCalendar(false);
+    setRemindDayBefore(false);
     if (!res.ok) {
-      const { error } = await res.json();
+      const error = await res.json().then((d) => d.error).catch(() => `서버 오류 (${res.status})`);
       showToast(`이번엔 못 먹었어요. 다시 한 번 시도해볼까요? (${error})`, "error");
       return;
     }
@@ -618,6 +627,36 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             </div>
             <div className="overflow-y-auto">
               <p className="text-sm text-steel">{pendingDraft.summary}</p>
+
+              {pendingDraft.schedule && (
+                <div className="mt-3 rounded-lg bg-surface p-3">
+                  <label className="flex items-start gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={addToCalendar}
+                      onChange={(e) => {
+                        setAddToCalendar(e.target.checked);
+                        if (!e.target.checked) setRemindDayBefore(false);
+                      }}
+                      className="mt-1 accent-primary"
+                    />
+                    <span>
+                      <strong className="tabular-nums">{pendingDraft.schedule.date}</strong> — {pendingDraft.schedule.label} 일정으로 캘린더에 추가할까요?
+                    </span>
+                  </label>
+                  {addToCalendar && (
+                    <label className="mt-2 ml-6 flex items-center gap-2 text-xs text-steel">
+                      <input
+                        type="checkbox"
+                        checked={remindDayBefore}
+                        onChange={(e) => setRemindDayBefore(e.target.checked)}
+                        className="accent-primary"
+                      />
+                      하루 전에 알려드릴까요?
+                    </label>
+                  )}
+                </div>
+              )}
 
               {pendingDraft.candidateCategories.length > 1 ? (
                 <>

@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/adminClient";
 import { ai } from "@/lib/ai";
-
-/** KST(UTC+9) 기준 YYYY-MM-DD. */
-function kstDateString(date: Date): string {
-  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
+import { kstDateString } from "@/lib/kstDate";
 
 /**
  * PRD 7.7 "밤 배치" 감정 자동 태깅. 매일 새벽(KST) Vercel Cron이 호출해서, 막 끝난 전날 하루치

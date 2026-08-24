@@ -22,39 +22,68 @@ export async function GET(request: NextRequest) {
       .eq("entry_date", date)
       .maybeSingle();
 
-    const { data: memos, error } = await supabase
-      .from("memos")
-      .select("id, content, summary, created_at, drawer:drawers(name)")
-      .eq("user_id", user.id)
-      .gte("created_at", `${date}T00:00:00+09:00`)
-      .lte("created_at", `${date}T23:59:59.999+09:00`)
-      .order("created_at", { ascending: true })
-      .returns<
-        { id: string; content: string; summary: string | null; created_at: string; drawer: { name: string } | null }[]
-      >();
+    const [{ data: memos, error }, { data: events, error: eventsError }] = await Promise.all([
+      supabase
+        .from("memos")
+        .select("id, content, summary, created_at, drawer:drawers(name)")
+        .eq("user_id", user.id)
+        .gte("created_at", `${date}T00:00:00+09:00`)
+        .lte("created_at", `${date}T23:59:59.999+09:00`)
+        .order("created_at", { ascending: true })
+        .returns<
+          { id: string; content: string; summary: string | null; created_at: string; drawer: { name: string } | null }[]
+        >(),
+      // 그날 "쓴" 메모가 아니라 그날이 "일정인" 메모 — 예: 오늘 적은 메모가 다음달 일정을 가리키는 경우
+      supabase
+        .from("memos")
+        .select("id, summary, content, remind_day_before, drawer:drawers(name)")
+        .eq("user_id", user.id)
+        .eq("event_date", date)
+        .returns<
+          { id: string; summary: string | null; content: string; remind_day_before: boolean; drawer: { name: string } | null }[]
+        >(),
+    ]);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (eventsError) {
+      return NextResponse.json({ error: eventsError.message }, { status: 500 });
     }
 
     return NextResponse.json({
       entry: entry ?? null,
       memos: (memos ?? []).map(({ drawer, ...rest }) => ({ ...rest, category: drawer?.name ?? null })),
+      events: (events ?? []).map(({ drawer, ...rest }) => ({ ...rest, category: drawer?.name ?? null })),
     });
   }
 
   if (month) {
-    const { data, error } = await supabase
-      .from("emotion_entries")
-      .select("entry_date, emotion, source")
-      .eq("user_id", user.id)
-      .gte("entry_date", `${month}-01`)
-      .lt("entry_date", nextMonthStart(month));
+    const [{ data, error }, { data: eventDates, error: eventDatesError }] = await Promise.all([
+      supabase
+        .from("emotion_entries")
+        .select("entry_date, emotion, source")
+        .eq("user_id", user.id)
+        .gte("entry_date", `${month}-01`)
+        .lt("entry_date", nextMonthStart(month)),
+      supabase
+        .from("memos")
+        .select("event_date")
+        .eq("user_id", user.id)
+        .gte("event_date", `${month}-01`)
+        .lt("event_date", nextMonthStart(month)),
+    ]);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ entries: data ?? [] });
+    if (eventDatesError) {
+      return NextResponse.json({ error: eventDatesError.message }, { status: 500 });
+    }
+    return NextResponse.json({
+      entries: data ?? [],
+      eventDates: Array.from(new Set((eventDates ?? []).map((r) => r.event_date as string))),
+    });
   }
 
   return NextResponse.json({ error: "month 또는 date가 필요합니다" }, { status: 400 });

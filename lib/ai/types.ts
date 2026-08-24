@@ -31,4 +31,11 @@ export interface AIProvider {
    * 일상/일기 메모가 하나도 없거나(전부 정보성) 감정이 뚜렷하지 않으면 null — 애매하면 태깅하지 않는다.
    */
   tagDailyEmotion(memoTexts: string[]): Promise<EmotionKey | null>;
+  /**
+   * 메모가 특정 날짜의 일정/약속을 말하는지 판단하고, 맞으면 실제 날짜(YYYY-MM-DD)로 변환한다.
+   * "다음주 화요일"처럼 상대적 표현은 todayIso 기준으로 계산해야 한다. 반복 일정("매주 목요일")은
+   * 다루지 않음 — 특정 하루를 가리키는 게 아니면 null. 일정이 아니거나 날짜가 불분명해도 null
+   * (애매하면 캘린더에 안 올린다).
+   */
+  extractSchedule(text: string, todayIso: string): Promise<{ date: string; label: string } | null>;
 }
