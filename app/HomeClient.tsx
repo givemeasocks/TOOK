@@ -586,6 +586,35 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     });
   }
 
+  // 서랍 카드 롱프레스 → 아이폰 홈 화면 편집 모드처럼 흔들리는 모드 진입.
+  // 흔들리는 동안 카드를 탭하면 그대로 서랍 상세(이름 변경/삭제가 이미 있는 화면)를 연다.
+  const [drawersJiggling, setDrawersJiggling] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  function handleDrawerPressStart() {
+    longPressFiredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      setDrawersJiggling(true);
+    }, 500);
+  }
+  function handleDrawerPressEnd() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+  function handleDrawerClick(d: Drawer) {
+    if (longPressFiredRef.current) {
+      // 롱프레스가 막 발동한 직후의 클릭(포인터를 뗄 때 같이 발생)은 무시 — 흔들리기 시작하자마자 열리면 어색함
+      longPressFiredRef.current = false;
+      return;
+    }
+    setDrawersJiggling(false);
+    openDrawer(d);
+  }
+
   // 최근 검색어는 이 기기에서만 의미 있는 편의 기능이라 로컬스토리지에 둔다 (서버 저장 불필요).
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   useEffect(() => {
@@ -1167,13 +1196,19 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">서랍</h2>
-          <button
-            onClick={checkMergeSuggestions}
-            disabled={mergeChecking || drawers.length < 2}
-            className="text-xs text-steel underline disabled:text-muted disabled:no-underline"
-          >
-            {mergeChecking ? "확인 중..." : "🧹 비슷한 서랍 정리"}
-          </button>
+          {drawersJiggling ? (
+            <button onClick={() => setDrawersJiggling(false)} className="text-xs font-semibold text-primary">
+              완료
+            </button>
+          ) : (
+            <button
+              onClick={checkMergeSuggestions}
+              disabled={mergeChecking || drawers.length < 2}
+              className="text-xs text-steel underline disabled:text-muted disabled:no-underline"
+            >
+              {mergeChecking ? "확인 중..." : "🧹 비슷한 서랍 정리"}
+            </button>
+          )}
         </div>
 
         {mergeSuggestions && (
@@ -1214,9 +1249,19 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               return (
                 <div key={d.id} className={showBubble ? "col-span-2 sm:col-span-3" : "contents"}>
                   <button
-                    onClick={() => openDrawer(d)}
-                    className="w-full rounded-lg p-4 text-left transition-transform hover:-translate-y-0.5"
-                    style={{ backgroundColor: colorFor(d.name).bg, color: colorFor(d.name).text }}
+                    onClick={() => handleDrawerClick(d)}
+                    onPointerDown={handleDrawerPressStart}
+                    onPointerUp={handleDrawerPressEnd}
+                    onPointerLeave={handleDrawerPressEnd}
+                    onPointerCancel={handleDrawerPressEnd}
+                    className={`w-full rounded-lg p-4 text-left transition-transform hover:-translate-y-0.5 ${
+                      drawersJiggling ? "drawer-jiggle" : ""
+                    }`}
+                    style={{
+                      backgroundColor: colorFor(d.name).bg,
+                      color: colorFor(d.name).text,
+                      animationDelay: drawersJiggling ? `${(d.id.charCodeAt(0) % 5) * 40}ms` : undefined,
+                    }}
                   >
                     <div className="font-heading text-base font-bold">
                       {d.name}
