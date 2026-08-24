@@ -1120,7 +1120,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           ) : (
             <div className="flex flex-col gap-2">
               {recentMemos.map((m) => (
-                <div key={m.id} className="flex items-start gap-2 rounded-md bg-surface p-2.5">
+                <div
+                  key={m.id}
+                  className="flex items-start gap-2 rounded-md bg-surface p-2.5"
+                  style={{ borderLeft: `4px solid ${colorFor(m.category).bg}` }}
+                >
                   <span
                     className="mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
                     style={{ backgroundColor: colorFor(m.category).bg, color: colorFor(m.category).text }}
@@ -1206,7 +1210,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           ) : (
             <div className="flex flex-col gap-1.5">
               {recentMemos.slice(0, 6).map((m) => (
-                <div key={m.id} className="flex items-baseline gap-2 text-sm">
+                <div
+                  key={m.id}
+                  className="flex items-baseline gap-2 pl-2 text-sm"
+                  style={{ borderLeft: `3px solid ${colorFor(m.category).bg}` }}
+                >
                   <span
                     className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
                     style={{ backgroundColor: colorFor(m.category).bg, color: colorFor(m.category).text }}
@@ -1330,12 +1338,19 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs transition-colors ${
+              className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
                 activeTab === t.key ? "text-primary" : "text-muted"
               }`}
             >
-              <TabIcon name={t.key} className="h-6 w-6" />
+              <span
+                className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                  activeTab === t.key ? "bg-primary/15" : ""
+                }`}
+              >
+                <TabIcon name={t.key} className="h-5 w-5" />
+              </span>
               {t.label}
+              <span className={`h-0.5 w-4 rounded-full ${activeTab === t.key ? "bg-primary" : "bg-transparent"}`} />
             </button>
           ))}
         </div>
@@ -1374,6 +1389,7 @@ function ResultGroup({
           <div
             key={m.id}
             className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4"
+            style={{ borderLeft: `4px solid ${colorFor(m.category).bg}` }}
           >
             <div>
               <CategorySelect memo={m} drawers={drawers} onChange={(c) => onCategoryChange(m, c)} askText={askText} />
