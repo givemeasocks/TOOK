@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "TOOK — 툭",
     short_name: "TOOK",
-    description: "툭 던져두면, 필요할 때 알아서 나타나는 개인 아카이브",
+    description: "아무 때나 툭 던져두세요. 필요할 때 제가 알아서 짠 꺼내드릴게요.",
     start_url: "/",
     display: "standalone",
     background_color: "#F3E9DC",

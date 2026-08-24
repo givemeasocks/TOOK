@@ -233,8 +233,6 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [thresholdA, setThresholdA] = useState(0.72);
-  const [thresholdB, setThresholdB] = useState(0.55);
   const [certain, setCertain] = useState<Memo[]>([]);
   const [maybe, setMaybe] = useState<Memo[]>([]);
   const [searched, setSearched] = useState(false);
@@ -512,11 +510,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     if (!query.trim()) return;
     setSearching(true);
     try {
-      const params = new URLSearchParams({
-        q: query,
-        a: String(thresholdA),
-        b: String(thresholdB),
-      });
+      const params = new URLSearchParams({ q: query });
       const res = await fetch(`/api/search?${params}`);
       if (!res.ok) {
         const { error } = await res.json();
@@ -815,7 +809,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                     if (e.key === "Enter") handleInvite();
                   }}
                   placeholder="친구 이메일로 초대"
-                  className="h-9 flex-1 rounded-md border border-hairline-strong bg-canvas px-3 text-xs text-ink outline-none focus:border-2 focus:border-primary"
+                  className="h-9 min-w-0 flex-1 rounded-md border border-hairline-strong bg-canvas px-3 text-xs text-ink outline-none focus:border-2 focus:border-primary"
                 />
                 <button
                   onClick={handleInvite}
@@ -876,7 +870,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         <div className="flex flex-col gap-1">
           <h1 className="font-heading text-3xl font-bold text-ink">TOOK — 툭</h1>
           <p className="text-sm text-steel">
-            툭 던져두면, 필요할 때 알아서 나타나는 개인 아카이브.
+            아무 때나 툭 던져두세요. 필요할 때 제가 알아서 짠 꺼내드릴게요.
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1 pt-1">
@@ -904,7 +898,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="툭 던져보세요"
-            className="h-11 flex-1 rounded-md border border-hairline-strong bg-canvas px-4 text-base text-ink outline-none focus:border-2 focus:border-primary"
+            className="h-11 min-w-0 flex-1 rounded-md border border-hairline-strong bg-canvas px-4 text-base text-ink outline-none focus:border-2 focus:border-primary"
           />
           <button
             onClick={handleSave}
@@ -1006,7 +1000,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="술"
-            className="h-11 flex-1 rounded-md bg-surface px-4 text-base text-steel outline-none focus:border-2 focus:border-primary"
+            className="h-11 min-w-0 flex-1 rounded-md bg-surface px-4 text-base text-steel outline-none focus:border-2 focus:border-primary"
           />
           <button
             onClick={handleSearch}
@@ -1015,35 +1009,6 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           >
             {searching ? "검색 중..." : "검색"}
           </button>
-        </div>
-
-        <div className="mt-5 flex flex-col gap-3">
-          <div className="flex items-center gap-3 text-sm text-slate">
-            <span className="w-6">A</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={thresholdA}
-              onChange={(e) => setThresholdA(Number(e.target.value))}
-              className="flex-1 accent-primary"
-            />
-            <span className="w-10 tabular-nums">{thresholdA.toFixed(2)}</span>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-slate">
-            <span className="w-6">B</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={thresholdB}
-              onChange={(e) => setThresholdB(Number(e.target.value))}
-              className="flex-1 accent-primary"
-            />
-            <span className="w-10 tabular-nums">{thresholdB.toFixed(2)}</span>
-          </div>
         </div>
 
         {searched && (

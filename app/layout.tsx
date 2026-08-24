@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "TOOK — 툭",
-  description: "툭 던져두면, 필요할 때 알아서 나타나는 개인 아카이브",
+  description: "아무 때나 툭 던져두세요. 필요할 때 제가 알아서 짠 꺼내드릴게요.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
