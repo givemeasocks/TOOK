@@ -1344,7 +1344,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               </div>
             )}
             <ResultGroup
-              title={`확실한 결과 (${certain.length})`}
+              title={
+                certain.length === 1 && maybe.length === 0
+                  ? "오, 이거 하나뿐이네"
+                  : `확실한 결과 (${certain.length})`
+              }
               memos={certain}
               drawers={drawers}
               onCategoryChange={handleCategoryChange}
@@ -1354,7 +1358,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               onToggleExpand={toggleExpand}
             />
             <ResultGroup
-              title={`혹시 이것도? (${maybe.length})`}
+              title={
+                maybe.length === 1 && certain.length === 0
+                  ? "오, 이거 하나뿐이네"
+                  : `혹시 이것도? (${maybe.length})`
+              }
               memos={maybe}
               drawers={drawers}
               onCategoryChange={handleCategoryChange}
