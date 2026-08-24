@@ -37,7 +37,11 @@ export default function InstallPrompt() {
     <div className="flex items-center justify-between gap-3 rounded-lg border border-hairline bg-surface px-4 py-3 text-sm text-ink">
       {deferredPrompt ? (
         <>
-          <span>홈 화면에 추가해두면 앱처럼 바로 열 수 있어요.</span>
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/character/horse-watch.svg" alt="" className="h-10 w-10 shrink-0" />
+            <span>홈 화면에 추가해두면 앱처럼 바로 열 수 있어요.</span>
+          </div>
           <div className="flex shrink-0 items-center gap-3">
             <button
               onClick={async () => {
@@ -56,7 +60,11 @@ export default function InstallPrompt() {
         </>
       ) : (
         <>
-          <span>공유 버튼 → &quot;홈 화면에 추가&quot;로 등록하면 앱처럼 바로 열 수 있어요.</span>
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/character/horse-watch.svg" alt="" className="h-10 w-10 shrink-0" />
+            <span>공유 버튼 → &quot;홈 화면에 추가&quot;로 등록하면 앱처럼 바로 열 수 있어요.</span>
+          </div>
           <button onClick={() => setDismissed(true)} className="shrink-0 text-xs text-steel" aria-label="닫기">
             닫기
           </button>

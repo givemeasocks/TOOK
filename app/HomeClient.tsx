@@ -109,8 +109,17 @@ type Dialog =
   | { kind: "confirm"; message: string }
   | { kind: "choice"; message: string; choices: { label: string; value: string }[] };
 
+const TABS = [
+  { key: "input", label: "넣기", icon: "🐴" },
+  { key: "drawers", label: "서랍", icon: "🧺" },
+  { key: "search", label: "꺼내기", icon: "🔍" },
+  { key: "calendar", label: "캘린더", icon: "📅" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
+
 export default function HomeClient({ userEmail }: { userEmail: string }) {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<TabKey>("input");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [dialogInput, setDialogInput] = useState("");
   const dialogResolveRef = useRef<((value: string | null) => void) | null>(null);
@@ -165,6 +174,19 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     setTimeout(() => setBiteFrame(2), 650);
     setTimeout(() => setBiting(false), 1000);
   }
+
+  // AI가 분류하는 동안(저장 버튼 누른 직후) 입력창 바로 아래서 계속 우물우물 씹는 걸 크게 보여준다 —
+  // 토스트 구석의 작은 아이콘 하나로는 "먹는다"는 느낌이 잘 안 살아서, 저장 버튼을 누른 그 순간부터
+  // 눈에 띄게 반복 재생한다 (DESIGN_took.md 2.3: "AI 종합 답변 로딩 — 우물우물 씹는 반복 모션").
+  const [chewFrame, setChewFrame] = useState(0);
+  useEffect(() => {
+    if (!saving) {
+      setChewFrame(0);
+      return;
+    }
+    const id = setInterval(() => setChewFrame((f) => (f + 1) % 2), 350);
+    return () => clearInterval(id);
+  }, [saving]);
 
   // 요약을 탭하면 원문을 펼쳐서 보여준다 (PRD D-2: "요약이 먼저 보이고 탭하면 원문")
   // 펼쳐서 읽는 순간이 PRD 7.6 리마인드가 말하는 "열람"이라, 여기서 서버에도 알려준다.
@@ -536,7 +558,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
+    <>
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 pt-10 pb-24">
       {toast && (
         <div className="fixed top-6 right-6 z-50 flex items-center gap-2 rounded-md bg-ink-deep px-4 py-2 text-sm text-on-dark shadow-[var(--shadow-4)]">
           {toast.variant === "success" && biting ? (
@@ -929,9 +952,9 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       <InstallPrompt />
       <ReminderOptIn />
 
-      {/* [1] 넣기 */}
+      {activeTab === "input" && (
       <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
-        <h2 className="mb-4 text-lg font-semibold text-ink">1. 넣기</h2>
+        <h2 className="mb-4 text-lg font-semibold text-ink">넣기</h2>
         <div className="flex gap-2">
           <input
             value={inputText}
@@ -944,9 +967,18 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             disabled={saving || !inputText.trim()}
             className="h-11 rounded-md bg-primary px-5 text-sm font-medium text-on-primary disabled:bg-hairline disabled:text-muted"
           >
-            {saving ? "저장 중..." : "저장"}
+            {saving ? "먹는 중..." : "저장"}
           </button>
         </div>
+
+        {saving && (
+          <div className="mt-4 flex flex-col items-center gap-1 py-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={BITE_FRAMES[chewFrame]} alt="" className="h-16 w-16" />
+            <p className="text-xs text-steel">아삭아삭... 어디에 넣을지 고민하는 중</p>
+          </div>
+        )}
+
         <div className="mt-3 flex items-center gap-3">
           <label
             className={`cursor-pointer rounded-md border border-hairline-strong px-4 py-2 text-sm text-ink ${ocrLoading ? "pointer-events-none opacity-50" : ""}`}
@@ -967,11 +999,12 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           {ocrLoading && <span className="text-xs text-steel">읽는 중...</span>}
         </div>
       </section>
+      )}
 
-      {/* [2] 서랍 */}
+      {activeTab === "drawers" && (
       <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-ink">2. 서랍</h2>
+          <h2 className="text-lg font-semibold text-ink">서랍</h2>
           <button
             onClick={checkMergeSuggestions}
             disabled={mergeChecking || drawers.length < 2}
@@ -1030,10 +1063,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           </div>
         )}
       </section>
+      )}
 
-      {/* [3] 꺼내기 */}
+      {activeTab === "search" && (
       <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
-        <h2 className="mb-4 text-lg font-semibold text-ink">3. 꺼내기</h2>
+        <h2 className="mb-4 text-lg font-semibold text-ink">꺼내기</h2>
         <div className="flex gap-2">
           <input
             value={query}
@@ -1052,6 +1086,13 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
         {searched && (
           <div className="mt-6 flex flex-col gap-6">
+            {certain.length > 0 && (
+              <div className="flex items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/character/horse-excited.svg" alt="" className="h-10 w-10" />
+                <p className="text-sm text-steel">찾았어요!</p>
+              </div>
+            )}
             <ResultGroup
               title={`확실한 결과 (${certain.length})`}
               memos={certain}
@@ -1079,9 +1120,28 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           </div>
         )}
       </section>
+      )}
 
-      <EmotionCalendar />
-    </main>
+      {activeTab === "calendar" && <EmotionCalendar />}
+      </main>
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)]">
+        <div className="mx-auto flex max-w-3xl">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs transition-colors ${
+                activeTab === t.key ? "text-primary" : "text-muted"
+              }`}
+            >
+              <span className="text-xl leading-none">{t.icon}</span>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+    </>
   );
 }
 

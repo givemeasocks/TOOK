@@ -96,7 +96,7 @@ export default function EmotionCalendar() {
   return (
     <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-ink">4. 감정 캘린더</h2>
+        <h2 className="text-lg font-semibold text-ink">감정 캘린더</h2>
         <div className="flex items-center gap-3 text-sm text-steel">
           <button onClick={() => setCursor(new Date(year, month - 1, 1))} aria-label="이전 달">
             ‹
