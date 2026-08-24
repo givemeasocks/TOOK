@@ -562,6 +562,30 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   // 검색해서 확실한 결과를 찾은 순간도 "메인 모션"급으로 잠깐 화면 전체에 크게 보여준다.
   const [foundSplash, setFoundSplash] = useState(false);
 
+  // 서랍이 10개 단위로 쌓이면 가벼운 코멘트를 보여준다. 어느 임계값까지 닫았는지는
+  // 기기별로만 의미 있는 편의 기능이라 로컬스토리지에 둔다 (recentSearches와 같은 패턴).
+  const [dismissedDrawerThresholds, setDismissedDrawerThresholds] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("took:dismissedDrawerThresholds");
+      if (raw) setDismissedDrawerThresholds(JSON.parse(raw));
+    } catch {
+      // 시크릿 모드 등에서 접근 자체가 막힐 수 있음 — 그냥 매번 보여주는 쪽으로 둔다
+    }
+  }, []);
+
+  function dismissDrawerThreshold(drawerId: string, threshold: number) {
+    setDismissedDrawerThresholds((prev) => {
+      const next = { ...prev, [drawerId]: threshold };
+      try {
+        localStorage.setItem("took:dismissedDrawerThresholds", JSON.stringify(next));
+      } catch {
+        // 저장 안 돼도 이번 세션 안에서는 계속 닫힌 채로 둠
+      }
+      return next;
+    });
+  }
+
   // 최근 검색어는 이 기기에서만 의미 있는 편의 기능이라 로컬스토리지에 둔다 (서버 저장 불필요).
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   useEffect(() => {
@@ -1184,21 +1208,40 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           <EmptyState text="아직 만들어진 서랍이 없어요. 메모를 저장하면 자동으로 생겨요." />
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {drawers.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => openDrawer(d)}
-                className="rounded-lg p-4 text-left transition-transform hover:-translate-y-0.5"
-                style={{ backgroundColor: colorFor(d.name).bg, color: colorFor(d.name).text }}
-              >
-                <div className="font-heading text-base font-bold">
-                  {d.name}
-                  {d.memberCount > 1 && <span className="ml-1 text-xs opacity-70">👥{d.memberCount}</span>}
+            {drawers.map((d) => {
+              const threshold = Math.floor(d.count / 10) * 10;
+              const showBubble = threshold >= 10 && (dismissedDrawerThresholds[d.id] ?? 0) < threshold;
+              return (
+                <div key={d.id} className={showBubble ? "col-span-2 sm:col-span-3" : "contents"}>
+                  <button
+                    onClick={() => openDrawer(d)}
+                    className="w-full rounded-lg p-4 text-left transition-transform hover:-translate-y-0.5"
+                    style={{ backgroundColor: colorFor(d.name).bg, color: colorFor(d.name).text }}
+                  >
+                    <div className="font-heading text-base font-bold">
+                      {d.name}
+                      {d.memberCount > 1 && <span className="ml-1 text-xs opacity-70">👥{d.memberCount}</span>}
+                    </div>
+                    <div className="text-xs opacity-70">{d.count}개</div>
+                    {d.preview && <div className="mt-1 truncate text-xs opacity-70">{d.preview}</div>}
+                  </button>
+                  {showBubble && (
+                    <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-surface px-3 py-2 text-xs text-steel">
+                      <span className="flex-1">
+                        &apos;{d.name}&apos; 서랍이 벌써 {d.count}개나... 괜찮아?
+                      </span>
+                      <button
+                        onClick={() => dismissDrawerThreshold(d.id, threshold)}
+                        aria-label="닫기"
+                        className="shrink-0 text-muted"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="text-xs opacity-70">{d.count}개</div>
-                {d.preview && <div className="mt-1 truncate text-xs opacity-70">{d.preview}</div>}
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
 
