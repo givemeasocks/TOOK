@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import InstallPrompt from "./InstallPrompt";
 import ReminderOptIn from "./ReminderOptIn";
+import EmotionCalendar from "./EmotionCalendar";
 import { getSupabaseBrowser } from "@/lib/supabase/browserClient";
 
 type Memo = {
@@ -1115,6 +1116,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           </div>
         )}
       </section>
+
+      <EmotionCalendar />
 
       {/* 측정 결과 */}
       <section className="rounded-lg bg-surface p-6">

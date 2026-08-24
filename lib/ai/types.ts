@@ -1,3 +1,5 @@
+import type { EmotionKey } from "../emotions";
+
 export type EmbedTaskType = "RETRIEVAL_QUERY" | "RETRIEVAL_DOCUMENT";
 
 export interface AIProvider {
@@ -24,4 +26,9 @@ export interface AIProvider {
    * 텍스트가 없으면 빈 문자열을 반환한다.
    */
   ocr(imageBase64: string, mimeType: string): Promise<string>;
+  /**
+   * PRD 7.7 감정 캘린더: 하루치 메모(들)을 보고 일상/일기 성격인 것만 근거로 그날의 대표 감정을 고른다.
+   * 일상/일기 메모가 하나도 없거나(전부 정보성) 감정이 뚜렷하지 않으면 null — 애매하면 태깅하지 않는다.
+   */
+  tagDailyEmotion(memoTexts: string[]): Promise<EmotionKey | null>;
 }

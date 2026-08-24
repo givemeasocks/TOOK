@@ -1,0 +1,183 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { EMOTIONS, emojiFor } from "@/lib/emotions";
+
+type EntryRow = { entry_date: string; emotion: string; source: "auto" | "manual" };
+type DayMemo = { id: string; content: string; summary: string | null; created_at: string; category: string | null };
+
+function toMonthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function toDateKey(year: number, month: number, day: number) {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** PRD 7.7 / C-1~C-3: 월간 뷰(빈 날 허용) → 날짜 탭하면 그날 감정 + 메모, 감정은 직접 입력으로 덮어쓸 수 있음. */
+export default function EmotionCalendar() {
+  const [cursor, setCursor] = useState(() => new Date());
+  const [entries, setEntries] = useState<Map<string, EntryRow>>(new Map());
+  const [loading, setLoading] = useState(false);
+
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [dayEntry, setDayEntry] = useState<EntryRow | null>(null);
+  const [dayMemos, setDayMemos] = useState<DayMemo[]>([]);
+  const [dayLoading, setDayLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function loadMonth(d: Date) {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/emotions?month=${toMonthKey(d)}`);
+      if (!res.ok) return;
+      const { entries: rows } = (await res.json()) as { entries: EntryRow[] };
+      setEntries(new Map(rows.map((r) => [r.entry_date, r])));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadMonth(cursor);
+  }, [cursor]);
+
+  async function openDay(dateKey: string) {
+    setSelectedDate(dateKey);
+    setDayLoading(true);
+    try {
+      const res = await fetch(`/api/emotions?date=${dateKey}`);
+      if (!res.ok) return;
+      const { entry, memos } = await res.json();
+      setDayEntry(entry);
+      setDayMemos(memos);
+    } finally {
+      setDayLoading(false);
+    }
+  }
+
+  function closeDay() {
+    setSelectedDate(null);
+    setDayEntry(null);
+    setDayMemos([]);
+  }
+
+  async function setEmotion(emotion: string) {
+    if (!selectedDate) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/emotions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: selectedDate, emotion }),
+      });
+      if (!res.ok) return;
+      setDayEntry({ entry_date: selectedDate, emotion, source: "manual" });
+      setEntries((prev) => new Map(prev).set(selectedDate, { entry_date: selectedDate, emotion, source: "manual" }));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (number | null)[] = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+
+  return (
+    <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-ink">4. 감정 캘린더</h2>
+        <div className="flex items-center gap-3 text-sm text-steel">
+          <button onClick={() => setCursor(new Date(year, month - 1, 1))} aria-label="이전 달">
+            ‹
+          </button>
+          <span className="tabular-nums text-ink">
+            {year}년 {month + 1}월
+          </span>
+          <button onClick={() => setCursor(new Date(year, month + 1, 1))} aria-label="다음 달">
+            ›
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 text-center text-xs text-muted">
+        {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
+          <div key={d}>{d}</div>
+        ))}
+      </div>
+      <div className={`mt-1 grid grid-cols-7 gap-1 ${loading ? "opacity-50" : ""}`}>
+        {cells.map((day, i) => {
+          if (day === null) return <div key={`empty-${i}`} />;
+          const dateKey = toDateKey(year, month, day);
+          const entry = entries.get(dateKey);
+          return (
+            <button
+              key={dateKey}
+              onClick={() => openDay(dateKey)}
+              className="flex aspect-square flex-col items-center justify-center rounded-md text-xs text-ink hover:bg-surface"
+            >
+              <span className="text-[10px] text-muted">{day}</span>
+              <span className="text-base leading-none">{entry ? emojiFor(entry.emotion) : ""}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedDate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-deep/40 px-4"
+          onClick={closeDay}
+        >
+          <div
+            className="flex max-h-[80vh] w-full max-w-[24rem] flex-col rounded-lg bg-canvas p-6 shadow-[var(--shadow-4)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-heading text-lg font-bold text-ink">{selectedDate}</h3>
+              <button onClick={closeDay} className="text-sm text-steel" aria-label="닫기">
+                닫기
+              </button>
+            </div>
+
+            <div className="mb-4 flex items-center gap-2">
+              {EMOTIONS.map((e) => (
+                <button
+                  key={e.key}
+                  onClick={() => setEmotion(e.key)}
+                  disabled={saving}
+                  title={e.label}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full text-xl ${
+                    dayEntry?.emotion === e.key ? "bg-primary/20 ring-2 ring-primary" : "bg-surface"
+                  }`}
+                >
+                  {e.emoji}
+                </button>
+              ))}
+            </div>
+            {dayEntry?.source === "auto" && (
+              <p className="mb-3 -mt-2 text-xs text-muted">자동으로 태깅됨 — 다르면 위에서 직접 골라주세요</p>
+            )}
+
+            <div className="flex-1 overflow-y-auto">
+              {dayLoading ? (
+                <p className="text-sm text-steel">불러오는 중...</p>
+              ) : dayMemos.length === 0 ? (
+                <p className="text-sm text-steel">이날 저장한 메모가 없어요.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {dayMemos.map((m) => (
+                    <div key={m.id} className="rounded-lg border border-hairline p-3">
+                      <p className="text-sm text-ink">{m.summary ?? m.content}</p>
+                      {m.category && <p className="mt-1 text-xs text-muted">{m.category}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

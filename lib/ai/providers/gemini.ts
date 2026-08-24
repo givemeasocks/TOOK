@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AI_CONFIG } from "../config";
 import type { AIProvider, EmbedTaskType } from "../types";
+import { EMOTIONS, isEmotionKey, type EmotionKey } from "../../emotions";
 
 let client: GoogleGenAI | null = null;
 
@@ -222,5 +223,47 @@ ${listed}`,
       ],
     });
     return (res.text ?? "").trim();
+  }
+
+  async tagDailyEmotion(memoTexts: string[]): Promise<EmotionKey | null> {
+    if (memoTexts.length === 0) return null;
+    const numbered = memoTexts.map((t, i) => `${i + 1}. ${t}`).join("\n");
+    const emotionList = EMOTIONS.map((e) => `${e.key} (${e.emoji} ${e.label})`).join(", ");
+
+    const res = await getClient().models.generateContent({
+      model: AI_CONFIG.summaryModel,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `너는 개인 아카이브 앱의 감정 캘린더 자동 태깅 담당이다. 아래는 어떤 사용자가 하루 동안 저장한 메모들이다.
+
+규칙:
+- 일정/쇼핑리스트/레시피/상식 메모처럼 "정보성" 메모는 무시해라. 일상/일기 성격 메모(그날 있었던 일, 느낀 감정, 사람 간 이야기 등)만 근거로 삼아라
+- 일상/일기 메모가 하나도 없으면 emotion을 null로 반환해라
+- 일상 메모가 있어도 감정이 뚜렷하지 않거나 여러 감정이 섞여 하나로 판단하기 애매하면 null을 반환해라 (정확도 우선 — 억지로 고르지 마라)
+- 감정이 뚜렷하면 다음 중 하나만 골라라: ${emotionList}
+
+메모 목록:
+${numbered}`,
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            emotion: { type: Type.STRING, nullable: true },
+          },
+          required: ["emotion"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(res.text ?? "{}");
+    return isEmotionKey(parsed.emotion) ? parsed.emotion : null;
   }
 }
