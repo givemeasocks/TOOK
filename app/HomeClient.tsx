@@ -155,6 +155,59 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     setTimeout(() => setToast(null), 2000);
   }
 
+  // 저장 햅틱: navigator.vibrate는 안드로이드 크롬에서만 동작하고 iOS 사파리(홈화면 PWA 포함)는
+  // 지원 자체가 없어서 그냥 조용히 무시된다 — 별도 분기 없이 그냥 호출해도 안전하다.
+  function vibrate(pattern: number | number[]) {
+    try {
+      navigator.vibrate?.(pattern);
+    } catch {
+      // 진동 API 자체가 없는 환경 — 무시
+    }
+  }
+
+  // 짧은 "톡" 소리: 바이너리 에셋 없이 Web Audio API로 즉석에서 짧은 톤을 합성한다.
+  // 저장 버튼 클릭(사용자 제스처) 안에서만 호출되므로 자동재생 정책에도 걸리지 않는다.
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  useEffect(() => {
+    try {
+      setSoundEnabled(localStorage.getItem("took:soundEnabled") === "1");
+    } catch {
+      // 시크릿 모드 등에서 접근 자체가 막힐 수 있음 — 기본값(꺼짐) 유지
+    }
+  }, []);
+
+  function toggleSoundEnabled(next: boolean) {
+    setSoundEnabled(next);
+    try {
+      localStorage.setItem("took:soundEnabled", next ? "1" : "0");
+    } catch {
+      // 저장 안 돼도 이번 세션 안에서는 계속 씀
+    }
+  }
+
+  function playTockSound() {
+    if (!soundEnabled) return;
+    try {
+      const AudioCtxCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtxCtor) return;
+      const ctx = new AudioCtxCtor();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 900;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.09);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+      osc.onended = () => ctx.close();
+    } catch {
+      // Web Audio API를 못 쓰는 환경 — 무시
+    }
+  }
+
   // 저장 순간 모션 (DESIGN_took.md 2.3/5.1): 다가감 → 무는 중 → 다 먹음, 3프레임을 1초 내외로 전환
   const BITE_FRAMES = ["/character/horse-bite-before.svg", "/character/horse-save-bite.svg", "/character/horse-bite-after.svg"];
   // 메모 특성에 따라 저장 리액션을 다르게 보여준다: 아주 짧은 메모는 한입에 삼키고, 새벽엔 졸린 표정.
@@ -423,6 +476,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     confirmingRef.current = true;
     setConfirming(true);
     const reaction = pickSaveReaction(pendingDraft.contentLength, categories[0]);
+    const isNewDrawer = categories.some((c) => !pendingDraft.existingCategories.includes(c));
     try {
       const res = await fetch("/api/memos/confirm", {
         method: "POST",
@@ -448,6 +502,9 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       const { movedCount } = await res.json();
       playBiteAnimation(reaction.kind);
       showToast(reaction.text(movedCount), "success");
+      // 새 서랍이 생기는 경우엔 평범한 저장보다 조금 더 뚜렷한 진동으로 구분해준다.
+      vibrate(isNewDrawer ? [20, 30, 20] : 15);
+      playTockSound();
       await loadDrawers();
       await loadRecentMemos();
     } finally {
@@ -1071,6 +1128,14 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               onMouseLeave={() => setAccountMenuOpen(false)}
             >
               <span className="text-muted">{userEmail}</span>
+              <label className="flex items-center gap-1.5 text-steel">
+                <input
+                  type="checkbox"
+                  checked={soundEnabled}
+                  onChange={(e) => toggleSoundEnabled(e.target.checked)}
+                />
+                저장할 때 톡 소리
+              </label>
               <button
                 onClick={async () => {
                   await getSupabaseBrowser().auth.signOut();
