@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import InstallPrompt from "./InstallPrompt";
+import ReminderOptIn from "./ReminderOptIn";
 import { getSupabaseBrowser } from "@/lib/supabase/browserClient";
 
 type Memo = {
@@ -169,12 +170,17 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   }
 
   // 요약을 탭하면 원문을 펼쳐서 보여준다 (PRD D-2: "요약이 먼저 보이고 탭하면 원문")
+  // 펼쳐서 읽는 순간이 PRD 7.6 리마인드가 말하는 "열람"이라, 여기서 서버에도 알려준다.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        fetch(`/api/memos/${id}/view`, { method: "POST" }).catch(() => {});
+      }
       return next;
     });
   }
@@ -922,6 +928,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       </header>
 
       <InstallPrompt />
+      <ReminderOptIn />
 
       {/* [1] 넣기 */}
       <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
