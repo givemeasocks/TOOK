@@ -28,6 +28,10 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
+// api 라우트는 이 프록시가 필요 없다 — Route Handler는 Server Component와 달리 쿠키를 직접 쓸 수
+// 있어서 requireUser() 안에서 스스로 세션을 갱신·저장한다. 오히려 여기서 요청을 한 번 더 감싸는
+// NextResponse.next({ request })가 multipart/form-data(예: /api/ocr 이미지 업로드) 바디의
+// boundary를 깨뜨려서 "no boundary found in multipart body" 에러가 났었음 — api 전체를 제외해서 해결.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|icons|character|manifest.webmanifest|sw.js).*)"],
+  matcher: ["/((?!_next/static|_next/image|icons|character|manifest.webmanifest|sw.js|api).*)"],
 };
