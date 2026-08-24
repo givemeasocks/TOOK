@@ -57,10 +57,6 @@ function colorFor(category: string): { bg: string; text: string } {
   return HASH_CATEGORY_PALETTE[hash % HASH_CATEGORY_PALETTE.length];
 }
 
-function formatPct(value: number | null) {
-  return value === null ? "—" : `${Math.round(value * 100)}%`;
-}
-
 // DESIGN_took.md 5.2: 검색 결과 없음 / 첫 사용 / 서랍 비어있음 — 자는 말 일러스트 + 다정한 문구
 function EmptyState({ text }: { text: string }) {
   return (
@@ -231,21 +227,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     }
   }
 
-  const [stats, setStats] = useState<{
-    recall: number | null;
-    falsePositiveRate: number | null;
-    classificationAccuracy: number | null;
-  }>({ recall: null, falsePositiveRate: null, classificationAccuracy: null });
-
-  async function loadStats() {
-    const res = await fetch("/api/eval");
-    if (!res.ok) return;
-    setStats(await res.json());
-  }
-
   useEffect(() => {
     loadDrawers();
-    loadStats();
   }, []);
 
   const [query, setQuery] = useState("");
@@ -523,24 +506,6 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     }
     // copy는 원본 카드를 그대로 두고, 새 서랍에 사본이 하나 더 생긴 것 — 서랍 개수만 갱신하면 됨
     await loadDrawers();
-  }
-
-  const [votes, setVotes] = useState<Record<string, boolean>>({});
-
-  async function handleVote(memo: Memo, relevant: boolean) {
-    const key = `${query}::${memo.id}`;
-    setVotes((v) => ({ ...v, [key]: relevant }));
-    await fetch("/api/eval", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query,
-        memo_id: memo.id,
-        relevant,
-        similarity: memo.similarity ?? null,
-      }),
-    });
-    await loadStats();
   }
 
   async function handleSearch() {
@@ -909,9 +874,9 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
       <header className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-3xl font-bold text-ink">TOOK — v0 프로토타입</h1>
+          <h1 className="font-heading text-3xl font-bold text-ink">TOOK — 툭</h1>
           <p className="text-sm text-steel">
-            목적은 예쁜 앱이 아니라 검색 품질 측정. 넣기 → 서랍 → 꺼내기.
+            툭 던져두면, 필요할 때 알아서 나타나는 개인 아카이브.
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1 pt-1">
@@ -1090,9 +1055,6 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               onCategoryChange={handleCategoryChange}
               onDelete={handleDeleteMemo}
               askText={askText}
-              query={query}
-              votes={votes}
-              onVote={handleVote}
               expandedIds={expandedIds}
               onToggleExpand={toggleExpand}
             />
@@ -1103,9 +1065,6 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               onCategoryChange={handleCategoryChange}
               onDelete={handleDeleteMemo}
               askText={askText}
-              query={query}
-              votes={votes}
-              onVote={handleVote}
               expandedIds={expandedIds}
               onToggleExpand={toggleExpand}
               muted
@@ -1118,19 +1077,6 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       </section>
 
       <EmotionCalendar />
-
-      {/* 측정 결과 */}
-      <section className="rounded-lg bg-surface p-6">
-        <h2 className="mb-3 text-sm font-semibold text-slate">📊 측정 결과</h2>
-        <div className="flex flex-wrap gap-6 text-sm text-ink">
-          <Stat label="재현율" value={formatPct(stats.recall)} />
-          <Stat label="오탐률" value={formatPct(stats.falsePositiveRate)} />
-          <Stat label="분류 정확도" value={formatPct(stats.classificationAccuracy)} />
-        </div>
-        <p className="mt-2 text-xs text-steel">
-          검색 결과에 👍/👎를 눌러야 재현율·오탐률이 집계돼요.
-        </p>
-      </section>
     </main>
   );
 }
@@ -1142,9 +1088,6 @@ function ResultGroup({
   onCategoryChange,
   onDelete,
   askText,
-  query,
-  votes,
-  onVote,
   expandedIds,
   onToggleExpand,
   muted,
@@ -1155,9 +1098,6 @@ function ResultGroup({
   onCategoryChange: (memo: Memo, newCategory: string) => void;
   onDelete: (memo: Memo) => void;
   askText: (message: string, defaultValue?: string) => Promise<string | null>;
-  query: string;
-  votes: Record<string, boolean>;
-  onVote: (memo: Memo, relevant: boolean) => void;
   expandedIds: Set<string>;
   onToggleExpand: (id: string) => void;
   muted?: boolean;
@@ -1167,62 +1107,33 @@ function ResultGroup({
     <div>
       <h3 className={`mb-2 text-sm font-medium ${muted ? "text-steel" : "text-ink"}`}>{title}</h3>
       <div className="flex flex-col gap-2">
-        {memos.map((m) => {
-          const voted = votes[`${query}::${m.id}`];
-          return (
-            <div
-              key={m.id}
-              className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4"
-            >
-              <div>
-                <CategorySelect memo={m} drawers={drawers} onChange={(c) => onCategoryChange(m, c)} askText={askText} />
-                {m.category_edited && <span className="ml-1 text-xs text-muted">(수정됨)</span>}
-                <p className="cursor-pointer text-sm text-ink" onClick={() => onToggleExpand(m.id)}>
-                  {m.summary}
+        {memos.map((m) => (
+          <div
+            key={m.id}
+            className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4"
+          >
+            <div>
+              <CategorySelect memo={m} drawers={drawers} onChange={(c) => onCategoryChange(m, c)} askText={askText} />
+              {m.category_edited && <span className="ml-1 text-xs text-muted">(수정됨)</span>}
+              <p className="cursor-pointer text-sm text-ink" onClick={() => onToggleExpand(m.id)}>
+                {m.summary}
+              </p>
+              {expandedIds.has(m.id) && (
+                <p className="mt-2 whitespace-pre-line border-t border-hairline pt-2 text-sm text-steel">
+                  {m.content}
                 </p>
-                {expandedIds.has(m.id) && (
-                  <p className="mt-2 whitespace-pre-line border-t border-hairline pt-2 text-sm text-steel">
-                    {m.content}
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-xs text-muted">{m.similarity?.toFixed(2)}</span>
-                <button
-                  aria-label="관련 있음"
-                  onClick={() => onVote(m, true)}
-                  className={`rounded-sm px-1 text-base ${voted === true ? "opacity-100" : "opacity-40 hover:opacity-100"}`}
-                >
-                  👍
-                </button>
-                <button
-                  aria-label="관련 없음"
-                  onClick={() => onVote(m, false)}
-                  className={`rounded-sm px-1 text-base ${voted === false ? "opacity-100" : "opacity-40 hover:opacity-100"}`}
-                >
-                  👎
-                </button>
-                <button
-                  aria-label="메모 삭제"
-                  onClick={() => onDelete(m)}
-                  className="text-xs text-muted hover:text-error"
-                >
-                  삭제
-                </button>
-              </div>
+              )}
             </div>
-          );
-        })}
+            <button
+              aria-label="메모 삭제"
+              onClick={() => onDelete(m)}
+              className="shrink-0 text-xs text-muted hover:text-error"
+            >
+              삭제
+            </button>
+          </div>
+        ))}
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-steel">{label}</span>
-      <span className="font-semibold">{value}</span>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TOOK v0 — 검색 품질 검증 프로토타입",
+  title: "TOOK — 툭",
   description: "툭 던져두면, 필요할 때 알아서 나타나는 개인 아카이브",
   appleWebApp: {
     capable: true,
