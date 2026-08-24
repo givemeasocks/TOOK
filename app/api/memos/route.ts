@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { ai } from "@/lib/ai";
 import { requireUser } from "@/lib/supabase/serverClient";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { MemoRow } from "@/lib/supabase/types";
+import { findDrawerIdByName, listMemberDrawers } from "@/lib/drawers";
 import { savePendingDraft } from "@/lib/pendingDrafts";
 
-async function getExistingCategories(supabase: SupabaseClient) {
-  const { data: categoryRows } = await supabase
-    .from("memos")
-    .select("category")
-    .not("category", "is", null)
-    .returns<Pick<MemoRow, "category">[]>();
-  return Array.from(new Set((categoryRows ?? []).map((r) => r.category as string)));
+async function getExistingCategories(supabase: SupabaseClient, userId: string) {
+  const drawers = await listMemberDrawers(supabase, userId);
+  return Array.from(new Set(drawers.map((d) => d.name)));
 }
 
 export async function POST(request: NextRequest) {
@@ -25,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "content가 비어있습니다" }, { status: 400 });
   }
 
-  const existingCategories = await getExistingCategories(supabase);
+  const existingCategories = await getExistingCategories(supabase, user.id);
 
   const [summary, embedding, categories] = await Promise.all([
     ai.summarize(content),
@@ -67,17 +63,27 @@ export async function GET(request: NextRequest) {
 
   const category = request.nextUrl.searchParams.get("category");
 
+  let drawerId: string | null = null;
+  if (category) {
+    drawerId = await findDrawerIdByName(supabase, user.id, category);
+    if (!drawerId) return NextResponse.json({ memos: [] });
+  }
+
   let query = supabase
     .from("memos")
-    .select("id, content, summary, category, category_edited, source, created_at")
+    .select("id, content, summary, category_edited, source, created_at, drawer:drawers(name)")
     .order("created_at", { ascending: false });
 
-  if (category) query = query.eq("category", category);
+  if (drawerId) query = query.eq("drawer_id", drawerId);
 
-  const { data, error } = await query.returns<MemoRow[]>();
+  const { data, error } = await query.returns<
+    { id: string; content: string; summary: string | null; category_edited: boolean; source: string; created_at: string; drawer: { name: string } | null }[]
+  >();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ memos: data });
+
+  const memos = (data ?? []).map(({ drawer, ...rest }) => ({ ...rest, category: drawer?.name ?? null }));
+  return NextResponse.json({ memos });
 }

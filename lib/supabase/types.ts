@@ -7,3 +7,12 @@ export type MemoRow = {
   source: "manual";
   created_at: string;
 };
+
+export type DrawerMemberRow = {
+  id: string;
+  drawer_id: string;
+  user_id: string | null;
+  invited_email: string;
+  status: "pending" | "accepted";
+  created_at: string;
+};

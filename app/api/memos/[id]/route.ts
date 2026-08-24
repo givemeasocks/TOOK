@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
+import { findOrCreateDrawerId } from "@/lib/drawers";
 
 export async function PATCH(
   request: NextRequest,
@@ -19,6 +20,7 @@ export async function PATCH(
   }
 
   const trimmed = category.trim();
+  const targetDrawerId = await findOrCreateDrawerId(supabase, user.id, user.email ?? "", trimmed);
 
   // copy: 원본은 그대로 두고, 같은 내용으로 새 서랍에 메모를 하나 더 만든다 (두 서랍에 동시에 존재)
   if (mode === "copy") {
@@ -39,32 +41,32 @@ export async function PATCH(
         summary: original.summary,
         embedding: original.embedding,
         source: original.source,
-        category: trimmed,
+        drawer_id: targetDrawerId,
         category_edited: true,
         user_id: user.id,
       })
-      .select("id, category, category_edited")
+      .select("id, category_edited")
       .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ memo: data, copied: true });
+    return NextResponse.json({ memo: { ...data, category: trimmed }, copied: true });
   }
 
   // move: 기존 메모의 서랍만 바꾼다 (원래 서랍에서는 사라짐)
   const { data, error } = await supabase
     .from("memos")
-    .update({ category: trimmed, category_edited: true })
+    .update({ drawer_id: targetDrawerId, category_edited: true })
     .eq("id", id)
-    .select("id, category, category_edited")
+    .select("id, category_edited")
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ memo: data, copied: false });
+  return NextResponse.json({ memo: { ...data, category: trimmed }, copied: false });
 }
 
 export async function DELETE(

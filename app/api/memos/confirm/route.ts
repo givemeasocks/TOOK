@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
-import type { MemoRow } from "@/lib/supabase/types";
+import { findOrCreateDrawerId } from "@/lib/drawers";
 import { takePendingDraft } from "@/lib/pendingDrafts";
 
 export async function POST(request: NextRequest) {
@@ -22,37 +22,42 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "만료되었거나 존재하지 않는 초안입니다" }, { status: 404 });
   }
 
-  // 카테고리 개수만큼 같은 내용의 메모를 각각 저장한다 (예: 감정 + 일기 둘 다 저장)
-  const { data, error } = await supabase
-    .from("memos")
-    .insert(
-      finalCategories.map((category) => ({
+  // 카테고리 개수만큼 같은 내용의 메모를 각각 저장한다 (예: 감정 + 일기 둘 다 저장). 순서를 category와
+  // 확실히 맞추려고 하나씩 insert한다 (많아야 2개라 성능 문제 없음).
+  const created: { id: string; content: string; summary: string | null; category: string; source: string; created_at: string }[] = [];
+  for (const category of finalCategories) {
+    const drawerId = await findOrCreateDrawerId(supabase, user.id, user.email ?? "", category);
+    const { data, error } = await supabase
+      .from("memos")
+      .insert({
         content: draft.content,
         summary: draft.summary,
         embedding: draft.embedding,
-        category,
+        drawer_id: drawerId,
         // 사용자가 제안된 후보 중 하나를 그대로 골랐다면 수정으로 안 침
         category_edited: !draft.candidateCategories.includes(category),
         source: draft.source,
         user_id: user.id,
-      }))
-    )
-    .select("id, content, summary, category, source, created_at")
-    .returns<Pick<MemoRow, "id" | "content" | "summary" | "category" | "source" | "created_at">[]>();
+      })
+      .select("id, content, summary, source, created_at")
+      .single();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    created.push({ ...data, category });
   }
 
   let movedCount = 0;
   if (Array.isArray(alsoMoveIds) && alsoMoveIds.length > 0) {
+    const targetDrawerId = await findOrCreateDrawerId(supabase, user.id, user.email ?? "", finalCategories[0]);
     const { data: moved, error: moveError } = await supabase
       .from("memos")
-      .update({ category: finalCategories[0], category_edited: true })
+      .update({ drawer_id: targetDrawerId, category_edited: true })
       .in("id", alsoMoveIds)
       .select("id");
     if (!moveError) movedCount = moved?.length ?? 0;
   }
 
-  return NextResponse.json({ memos: data, movedCount });
+  return NextResponse.json({ memos: created, movedCount });
 }

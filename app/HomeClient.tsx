@@ -15,8 +15,17 @@ type Memo = {
 };
 
 type Drawer = {
+  id: string;
   name: string;
   count: number;
+  memberCount: number;
+};
+
+type DrawerMember = {
+  id: string;
+  invited_email: string;
+  status: "pending" | "accepted";
+  user_id: string | null;
 };
 
 // DESIGN_took.md 3.2: 자주 쓰는 카테고리는 고정 색, 그 외는 이름을 해시해 파스텔 팔레트에서 자동 배정 (동일 이름 = 항상 동일 색)
@@ -172,9 +181,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
   async function loadDrawers() {
     const res = await fetch("/api/drawers");
-    if (!res.ok) return;
+    if (!res.ok) return [] as Drawer[];
     const { drawers } = await res.json();
     setDrawers(drawers);
+    return drawers as Drawer[];
   }
 
   const [mergeSuggestions, setMergeSuggestions] = useState<{ into: string; from: string[] }[] | null>(null);
@@ -370,9 +380,42 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     await loadDrawers();
   }
 
-  const [selectedDrawer, setSelectedDrawer] = useState<string | null>(null);
+  const [selectedDrawer, setSelectedDrawer] = useState<Drawer | null>(null);
   const [drawerMemos, setDrawerMemos] = useState<Memo[]>([]);
   const [drawerLoading, setDrawerLoading] = useState(false);
+  const [drawerMembers, setDrawerMembers] = useState<DrawerMember[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+
+  async function loadMembers(drawerId: string) {
+    const res = await fetch(`/api/drawers/${drawerId}/members`);
+    if (!res.ok) return;
+    const { members } = await res.json();
+    setDrawerMembers(members);
+  }
+
+  async function handleInvite() {
+    if (!selectedDrawer || !inviteEmail.trim()) return;
+    setInviting(true);
+    try {
+      const res = await fetch(`/api/drawers/${selectedDrawer.id}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inviteEmail.trim() }),
+      });
+      if (!res.ok) {
+        const { error } = await res.json();
+        showToast(`초대하지 못했어요 (${error})`, "error");
+        return;
+      }
+      setInviteEmail("");
+      await loadMembers(selectedDrawer.id);
+      await loadDrawers();
+      showToast("초대했어요!", "success");
+    } finally {
+      setInviting(false);
+    }
+  }
 
   async function handleDeleteMemo(memo: Memo) {
     if (!(await askConfirm("이 메모를 삭제할까요?"))) return;
@@ -384,24 +427,24 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     await loadDrawers();
   }
 
-  async function renameDrawer(name: string) {
-    const newName = await askText("새 서랍 이름", name);
-    if (!newName?.trim() || newName.trim() === name) return;
+  async function renameDrawer(drawer: Drawer) {
+    const newName = await askText("새 서랍 이름", drawer.name);
+    if (!newName?.trim() || newName.trim() === drawer.name) return;
     const res = await fetch("/api/drawers", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, newName: newName.trim() }),
+      body: JSON.stringify({ name: drawer.name, newName: newName.trim() }),
     });
     if (!res.ok) return;
-    setSelectedDrawer(newName.trim());
-    await loadDrawers();
-    await openDrawer(newName.trim());
+    const list = await loadDrawers();
+    const updated = list.find((d) => d.name === newName.trim()) ?? { ...drawer, name: newName.trim() };
+    await openDrawer(updated);
   }
 
-  async function deleteDrawer(name: string, count: number) {
+  async function deleteDrawer(drawer: Drawer, count: number) {
     if (count > 0) {
       const target = await askText(
-        `"${name}" 안에 메모가 ${count}개 있어요.\n옮길 서랍 이름을 입력하면 그쪽으로 옮겨요.\n빈 채로 확인하면 메모까지 전부 삭제돼요. (취소하면 아무 일도 안 일어남)`,
+        `"${drawer.name}" 안에 메모가 ${count}개 있어요.\n옮길 서랍 이름을 입력하면 그쪽으로 옮겨요.\n빈 채로 확인하면 메모까지 전부 삭제돼요. (취소하면 아무 일도 안 일어남)`,
         ""
       );
       if (target === null) return;
@@ -409,7 +452,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         const res = await fetch("/api/drawers", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, newName: target.trim() }),
+          body: JSON.stringify({ name: drawer.name, newName: target.trim() }),
         });
         if (!res.ok) return;
         closeDrawer();
@@ -418,27 +461,30 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       }
       if (!(await askConfirm(`정말 메모 ${count}개를 전부 삭제할까요? 되돌릴 수 없어요.`))) return;
     }
-    const res = await fetch(`/api/drawers?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+    const res = await fetch(`/api/drawers?name=${encodeURIComponent(drawer.name)}`, { method: "DELETE" });
     if (!res.ok) return;
     closeDrawer();
     await loadDrawers();
   }
 
-  async function openDrawer(name: string) {
+  async function openDrawer(drawer: Drawer) {
     setPendingDraft(null);
-    setSelectedDrawer(name);
+    setSelectedDrawer(drawer);
     setDrawerLoading(true);
-    const res = await fetch(`/api/memos?category=${encodeURIComponent(name)}`);
+    const res = await fetch(`/api/memos?category=${encodeURIComponent(drawer.name)}`);
     if (res.ok) {
       const { memos } = await res.json();
       setDrawerMemos(memos);
     }
     setDrawerLoading(false);
+    await loadMembers(drawer.id);
   }
 
   function closeDrawer() {
     setSelectedDrawer(null);
     setDrawerMemos([]);
+    setDrawerMembers([]);
+    setInviteEmail("");
   }
 
   async function handleCategoryChange(memo: Memo, newCategory: string) {
@@ -762,7 +808,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-2">
-              <h3 className="font-heading text-xl font-bold text-ink">{selectedDrawer}</h3>
+              <h3 className="font-heading text-xl font-bold text-ink">{selectedDrawer.name}</h3>
               <div className="flex shrink-0 items-center gap-3">
                 <button onClick={() => renameDrawer(selectedDrawer)} className="text-xs text-steel underline">
                   이름 바꾸기
@@ -778,6 +824,37 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 </button>
               </div>
             </div>
+
+            <div className="mb-4 rounded-lg bg-surface p-3">
+              <p className="mb-2 text-xs font-medium text-steel">함께 보는 사람</p>
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {drawerMembers.map((m) => (
+                  <span key={m.id} className="rounded-full bg-canvas px-2 py-0.5 text-xs text-ink">
+                    {m.invited_email}
+                    {m.status === "pending" && " (초대중)"}
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleInvite();
+                  }}
+                  placeholder="친구 이메일로 초대"
+                  className="h-9 flex-1 rounded-md border border-hairline-strong bg-canvas px-3 text-xs text-ink outline-none focus:border-2 focus:border-primary"
+                />
+                <button
+                  onClick={handleInvite}
+                  disabled={inviting || !inviteEmail.trim()}
+                  className="h-9 shrink-0 rounded-md bg-primary px-3 text-xs font-medium text-on-primary disabled:bg-hairline disabled:text-muted"
+                >
+                  {inviting ? "초대 중..." : "초대"}
+                </button>
+              </div>
+            </div>
+
             <div className="flex-1 overflow-y-auto">
               {drawerLoading ? (
                 <p className="text-sm text-steel">불러오는 중...</p>
@@ -932,12 +1009,15 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {drawers.map((d) => (
               <button
-                key={d.name}
-                onClick={() => openDrawer(d.name)}
+                key={d.id}
+                onClick={() => openDrawer(d)}
                 className="rounded-lg p-4 text-left transition-transform hover:-translate-y-0.5"
                 style={{ backgroundColor: colorFor(d.name).bg, color: colorFor(d.name).text }}
               >
-                <div className="font-heading text-base font-bold">{d.name}</div>
+                <div className="font-heading text-base font-bold">
+                  {d.name}
+                  {d.memberCount > 1 && <span className="ml-1 text-xs opacity-70">👥{d.memberCount}</span>}
+                </div>
                 <div className="text-xs opacity-70">{d.count}개</div>
               </button>
             ))}

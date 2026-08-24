@@ -1,35 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
-import type { MemoRow } from "@/lib/supabase/types";
+import { countMemosAndMembers, findDrawerIdByName, listMemberDrawers } from "@/lib/drawers";
 
 export async function GET() {
   const { supabase, user } = await requireUser();
   if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
 
-  const { data, error } = await supabase
-    .from("memos")
-    .select("category")
-    .not("category", "is", null)
-    .returns<Pick<MemoRow, "category">[]>();
+  const memberDrawers = listDeduped(await listMemberDrawers(supabase, user.id));
+  const { memoCounts, memberCounts } = await countMemosAndMembers(
+    supabase,
+    memberDrawers.map((d) => d.id)
+  );
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  const counts = new Map<string, number>();
-  for (const row of data ?? []) {
-    const category = row.category as string;
-    counts.set(category, (counts.get(category) ?? 0) + 1);
-  }
-
-  const drawers = Array.from(counts.entries())
-    .map(([name, count]) => ({ name, count }))
+  const drawers = memberDrawers
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      count: memoCounts.get(d.id) ?? 0,
+      memberCount: memberCounts.get(d.id) ?? 1,
+    }))
     .sort((a, b) => b.count - a.count);
 
   return NextResponse.json({ drawers });
 }
 
-/** 서랍(카테고리) 이름을 일괄 변경한다. 잘못 만들어진 카테고리명을 고칠 때 씀. */
+// 이름이 같은 서랍이 여러 개면(내 개인 서랍 + 공유받은 동명 서랍) 목록에는 하나로만 보여준다.
+function listDeduped(drawers: { id: string; name: string }[]) {
+  const seen = new Set<string>();
+  return drawers.filter((d) => {
+    if (seen.has(d.name)) return false;
+    seen.add(d.name);
+    return true;
+  });
+}
+
+/** 서랍(이름) 이름을 바꾼다. 바꾸려는 이름의 서랍이 이미 있으면, 그 서랍으로 메모를 합치고 원래 서랍은 지운다. */
 export async function PATCH(request: NextRequest) {
   const { supabase, user } = await requireUser();
   if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
@@ -40,19 +45,42 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "name, newName이 필요합니다" }, { status: 400 });
   }
 
-  const { error, count } = await supabase
-    .from("memos")
-    .update({ category: newName.trim(), category_edited: true }, { count: "exact" })
-    .eq("category", name);
+  const sourceId = await findDrawerIdByName(supabase, user.id, name);
+  if (!sourceId) {
+    return NextResponse.json({ error: "서랍을 찾을 수 없습니다" }, { status: 404 });
+  }
 
+  const targetId = await findDrawerIdByName(supabase, user.id, newName.trim());
+
+  if (targetId && targetId !== sourceId) {
+    const { data: moved, error: moveError } = await supabase
+      .from("memos")
+      .update({ drawer_id: targetId, category_edited: true })
+      .eq("drawer_id", sourceId)
+      .select("id");
+    if (moveError) {
+      return NextResponse.json({ error: moveError.message }, { status: 500 });
+    }
+    await supabase.from("drawers").delete().eq("id", sourceId);
+    return NextResponse.json({ renamed: moved?.length ?? 0 });
+  }
+
+  const { error } = await supabase.from("drawers").update({ name: newName.trim() }).eq("id", sourceId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ renamed: count ?? 0 });
+  await supabase.from("memos").update({ category_edited: true }).eq("drawer_id", sourceId);
+
+  const { count: memoCount } = await supabase
+    .from("memos")
+    .select("id", { count: "exact", head: true })
+    .eq("drawer_id", sourceId);
+
+  return NextResponse.json({ renamed: memoCount ?? 0 });
 }
 
-/** 서랍(카테고리)을 통째로 삭제한다. 안에 있던 메모도 함께 삭제됨 — 잘못 생성된 서랍 정리용. */
+/** 서랍을 통째로 삭제한다. 안에 있던 메모도 함께 삭제됨. */
 export async function DELETE(request: NextRequest) {
   const { supabase, user } = await requireUser();
   if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
@@ -63,11 +91,17 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "name이 필요합니다" }, { status: 400 });
   }
 
-  const { error, count } = await supabase
-    .from("memos")
-    .delete({ count: "exact" })
-    .eq("category", name);
+  const drawerId = await findDrawerIdByName(supabase, user.id, name);
+  if (!drawerId) {
+    return NextResponse.json({ deleted: 0 });
+  }
 
+  const { count } = await supabase
+    .from("memos")
+    .select("id", { count: "exact", head: true })
+    .eq("drawer_id", drawerId);
+
+  const { error } = await supabase.from("drawers").delete().eq("id", drawerId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
