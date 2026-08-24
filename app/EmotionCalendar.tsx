@@ -110,6 +110,18 @@ export default function EmotionCalendar() {
         </div>
       </div>
 
+      <p className="mb-2 text-xs text-steel">
+        이번 달 {entries.size}일 기록했어요
+      </p>
+      <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1">
+        {EMOTIONS.map((e) => (
+          <span key={e.key} className="flex items-center gap-1 text-[11px] text-muted">
+            <span className="text-sm leading-none">{e.emoji}</span>
+            {e.label}
+          </span>
+        ))}
+      </div>
+
       <div className="grid grid-cols-7 gap-1 text-center text-xs text-muted">
         {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
           <div key={d}>{d}</div>

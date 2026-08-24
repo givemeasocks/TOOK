@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
-import { countMemosAndMembers, findDrawerIdByName, listMemberDrawers } from "@/lib/drawers";
+import { countMemosAndMembers, findDrawerIdByName, latestMemoPreviews, listMemberDrawers } from "@/lib/drawers";
 
 export async function GET() {
   const { supabase, user } = await requireUser();
   if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
 
   const memberDrawers = listDeduped(await listMemberDrawers(supabase, user.id));
-  const { memoCounts, memberCounts } = await countMemosAndMembers(
-    supabase,
-    memberDrawers.map((d) => d.id)
-  );
+  const ids = memberDrawers.map((d) => d.id);
+  const [{ memoCounts, memberCounts }, previews] = await Promise.all([
+    countMemosAndMembers(supabase, ids),
+    latestMemoPreviews(supabase, ids),
+  ]);
 
   const drawers = memberDrawers
     .map((d) => ({
@@ -18,6 +19,7 @@ export async function GET() {
       name: d.name,
       count: memoCounts.get(d.id) ?? 0,
       memberCount: memberCounts.get(d.id) ?? 1,
+      preview: previews.get(d.id) ?? null,
     }))
     .sort((a, b) => b.count - a.count);
 

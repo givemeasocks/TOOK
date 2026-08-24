@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import InstallPrompt from "./InstallPrompt";
 import ReminderOptIn from "./ReminderOptIn";
 import EmotionCalendar from "./EmotionCalendar";
+import { TabIcon } from "./TabIcon";
+import EmptyState from "./EmptyState";
 import { getSupabaseBrowser } from "@/lib/supabase/browserClient";
 
 type Memo = {
@@ -21,6 +23,7 @@ type Drawer = {
   name: string;
   count: number;
   memberCount: number;
+  preview: string | null;
 };
 
 type DrawerMember = {
@@ -55,17 +58,6 @@ function colorFor(category: string): { bg: string; text: string } {
   let hash = 0;
   for (let i = 0; i < category.length; i++) hash = (hash * 31 + category.charCodeAt(i)) >>> 0;
   return HASH_CATEGORY_PALETTE[hash % HASH_CATEGORY_PALETTE.length];
-}
-
-// DESIGN_took.md 5.2: 검색 결과 없음 / 첫 사용 / 서랍 비어있음 — 자는 말 일러스트 + 다정한 문구
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2 py-6 text-center">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/character/horse-sleeping.svg" alt="" className="h-16 w-16 opacity-90" />
-      <p className="text-sm text-steel">{text}</p>
-    </div>
-  );
 }
 
 function CategorySelect({
@@ -110,16 +102,17 @@ type Dialog =
   | { kind: "choice"; message: string; choices: { label: string; value: string }[] };
 
 const TABS = [
-  { key: "input", label: "넣기", icon: "🐴" },
-  { key: "drawers", label: "서랍", icon: "🧺" },
-  { key: "search", label: "꺼내기", icon: "🔍" },
-  { key: "calendar", label: "캘린더", icon: "📅" },
+  { key: "input", label: "넣기" },
+  { key: "drawers", label: "서랍" },
+  { key: "search", label: "꺼내기" },
+  { key: "calendar", label: "캘린더" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
 export default function HomeClient({ userEmail }: { userEmail: string }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("input");
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [dialogInput, setDialogInput] = useState("");
   const dialogResolveRef = useRef<((value: string | null) => void) | null>(null);
@@ -212,6 +205,17 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     return drawers as Drawer[];
   }
 
+  // 넣기/서랍 탭 둘 다 "최근에 넣은 것" 목록을 보여주는 데 같이 쓴다 (닐슨 휴리스틱: 빈 공간을
+  // 콘텐츠로 채우기). 새로 저장하거나 지우면 다시 불러온다.
+  const [recentMemos, setRecentMemos] = useState<Memo[]>([]);
+
+  async function loadRecentMemos() {
+    const res = await fetch("/api/memos?limit=8");
+    if (!res.ok) return;
+    const { memos } = await res.json();
+    setRecentMemos(memos);
+  }
+
   const [mergeSuggestions, setMergeSuggestions] = useState<{ into: string; from: string[] }[] | null>(null);
   const [mergeChecking, setMergeChecking] = useState(false);
   const [mergingKey, setMergingKey] = useState<string | null>(null);
@@ -251,6 +255,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
   useEffect(() => {
     loadDrawers();
+    loadRecentMemos();
   }, []);
 
   const [query, setQuery] = useState("");
@@ -407,6 +412,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       playBiteAnimation();
       showToast(movedCount > 0 ? `툭! (+${movedCount}개 같이 옮김)` : "툭!", "success");
       await loadDrawers();
+      await loadRecentMemos();
     } finally {
       confirmingRef.current = false;
       setConfirming(false);
@@ -457,6 +463,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     setCertain((list) => list.filter((m) => m.id !== memo.id));
     setMaybe((list) => list.filter((m) => m.id !== memo.id));
     setDrawerMemos((list) => list.filter((m) => m.id !== memo.id));
+    setRecentMemos((list) => list.filter((m) => m.id !== memo.id));
     await loadDrawers();
   }
 
@@ -544,6 +551,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         list.map((m) => (m.id === memo.id ? { ...m, category: newCategory, category_edited: true } : m));
       setCertain(update);
       setMaybe(update);
+      setRecentMemos(update);
       // 서랍 상세에서 고친 경우, 카테고리가 바뀌었으면 이 서랍 목록에서는 사라짐
       setDrawerMemos((list) => list.filter((m) => m.id !== memo.id));
     }
@@ -554,11 +562,34 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   // 검색해서 확실한 결과를 찾은 순간도 "메인 모션"급으로 잠깐 화면 전체에 크게 보여준다.
   const [foundSplash, setFoundSplash] = useState(false);
 
-  async function handleSearch() {
-    if (!query.trim()) return;
+  // 최근 검색어는 이 기기에서만 의미 있는 편의 기능이라 로컬스토리지에 둔다 (서버 저장 불필요).
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("took:recentSearches");
+      if (raw) setRecentSearches(JSON.parse(raw));
+    } catch {
+      // 시크릿 모드 등에서 접근 자체가 막힐 수 있음 — 그냥 빈 목록으로 둔다
+    }
+  }, []);
+
+  function rememberSearch(q: string) {
+    setRecentSearches((prev) => {
+      const next = [q, ...prev.filter((s) => s !== q)].slice(0, 5);
+      try {
+        localStorage.setItem("took:recentSearches", JSON.stringify(next));
+      } catch {
+        // 저장 안 돼도 이번 세션 안에서는 계속 씀
+      }
+      return next;
+    });
+  }
+
+  async function runSearch(q: string) {
+    if (!q.trim()) return;
     setSearching(true);
     try {
-      const params = new URLSearchParams({ q: query });
+      const params = new URLSearchParams({ q });
       const res = await fetch(`/api/search?${params}`);
       if (!res.ok) {
         const { error } = await res.json();
@@ -569,6 +600,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       setCertain(certain);
       setMaybe(maybe);
       setSearched(true);
+      rememberSearch(q.trim());
       if (certain.length > 0) {
         setFoundSplash(true);
         setTimeout(() => setFoundSplash(false), 1200);
@@ -578,9 +610,18 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     }
   }
 
+  async function handleSearch() {
+    await runSearch(query);
+  }
+
+  function searchFor(q: string) {
+    setQuery(q);
+    runSearch(q);
+  }
+
   return (
     <>
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 pt-10 pb-24">
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 px-4 pt-6 pb-24">
       {/* 저장 완료 순간(DESIGN_took.md 2.3/5.1 "메인 모션")을 구석 토스트의 작은 아이콘 대신
           화면 전체에 크게 보여준다 — 안 그러면 눈에 잘 안 띄어서 놓치기 쉬움. */}
       {biting && toast && (
@@ -914,7 +955,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 <button
                   onClick={handleInvite}
                   disabled={inviting || !inviteEmail.trim()}
-                  className="h-9 shrink-0 rounded-md bg-primary px-3 text-xs font-medium text-on-primary disabled:bg-hairline disabled:text-muted"
+                  className="h-9 shrink-0 rounded-md bg-primary px-3 text-xs font-medium text-on-primary disabled:bg-hairline disabled:text-muted disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {inviting ? "초대 중..." : "초대"}
                 </button>
@@ -966,24 +1007,44 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         </div>
       )}
 
-      <header className="flex items-start justify-between gap-2">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-3xl font-bold text-ink">TOOK — 툭</h1>
-          <p className="text-sm text-steel">
-            아무 때나 툭 던져두세요. 필요할 때 제가 알아서 짠 꺼내드릴게요.
-          </p>
+      {/* DESIGN_took.md 6: 헤더도 카드처럼 여백을 조밀하게 — 이메일/로그아웃은 평소엔 숨기고
+          계정 아이콘을 눌렀을 때만 펼친다. 태그라인은 처음 들어오는 "넣기" 탭에서만 보여주고
+          다른 탭에선 로고만 남겨서, 고정 헤더가 차지하는 비중을 콘텐츠 쪽으로 넘긴다. */}
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="font-heading text-xl font-bold text-ink">TOOK — 툭</h1>
+          {activeTab === "input" && (
+            <p className="text-xs text-steel">아무 때나 툭 던져두세요. 필요할 때 짠 꺼내드릴게요.</p>
+          )}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1 pt-1">
-          <span className="text-xs text-muted">{userEmail}</span>
+        <div className="relative shrink-0">
           <button
-            onClick={async () => {
-              await getSupabaseBrowser().auth.signOut();
-              router.refresh();
-            }}
-            className="text-xs text-steel underline"
+            onClick={() => setAccountMenuOpen((v) => !v)}
+            aria-label="계정"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-surface text-steel"
           >
-            로그아웃
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.2" />
+              <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" />
+            </svg>
           </button>
+          {accountMenuOpen && (
+            <div
+              className="absolute right-0 top-11 z-40 flex flex-col items-end gap-1.5 rounded-md bg-canvas p-3 text-xs shadow-[var(--shadow-4)]"
+              onMouseLeave={() => setAccountMenuOpen(false)}
+            >
+              <span className="text-muted">{userEmail}</span>
+              <button
+                onClick={async () => {
+                  await getSupabaseBrowser().auth.signOut();
+                  router.refresh();
+                }}
+                className="text-steel underline"
+              >
+                로그아웃
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -991,8 +1052,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       <ReminderOptIn />
 
       {activeTab === "input" && (
-      <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
-        <h2 className="mb-4 text-lg font-semibold text-ink">넣기</h2>
+      <section className="rounded-lg border border-hairline bg-canvas p-3.5 shadow-[var(--shadow-1)]">
+        <h2 className="mb-2 text-lg font-semibold text-ink">넣기</h2>
         <div className="flex gap-2">
           <input
             value={inputText}
@@ -1003,11 +1064,21 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           <button
             onClick={handleSave}
             disabled={saving || !inputText.trim()}
-            className="h-11 rounded-md bg-primary px-5 text-sm font-medium text-on-primary disabled:bg-hairline disabled:text-muted"
+            className="h-11 rounded-md bg-primary px-5 text-sm font-medium text-on-primary disabled:bg-hairline disabled:text-muted disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {saving ? "먹는 중..." : "저장"}
           </button>
         </div>
+
+        {/* DESIGN_took.md 5.4: 빈 입력창만 보면 뭘 적어야 할지 막막할 수 있어서, 흐릿한 예시를
+            살짝 붙여둔다 — 실제 입력이 시작되면 바로 사라짐. */}
+        {!inputText.trim() && (
+          <div className="mt-2 flex items-center gap-2 px-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/character/horse-greet.svg" alt="" className="h-10 w-10 shrink-0" />
+            <p className="text-xs text-muted">예: 얼그레이 향 나는 진, 토닉이랑 잘 맞음</p>
+          </div>
+        )}
 
         {saving && (
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
@@ -1017,7 +1088,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           </div>
         )}
 
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-2 flex items-center gap-3">
           <label
             className={`cursor-pointer rounded-md border border-hairline-strong px-4 py-2 text-sm text-ink ${ocrLoading ? "pointer-events-none opacity-50" : ""}`}
           >
@@ -1037,6 +1108,31 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           {ocrLoading && <span className="text-xs text-steel">읽는 중...</span>}
         </div>
       </section>
+      )}
+
+      {/* 입력 카드 아래 빈 공간을 최근 메모 목록으로 채운다(닐슨 휴리스틱: 콘텐츠 밀도) — 메모가
+          하나도 없으면 DESIGN_took.md 5.2대로 자는 말 일러스트 + 안내 문구를 대신 보여준다. */}
+      {activeTab === "input" && (
+        <section className="rounded-lg border border-hairline bg-canvas p-3.5 shadow-[var(--shadow-1)]">
+          <h2 className="mb-2 text-sm font-semibold text-ink">최근 메모</h2>
+          {recentMemos.length === 0 ? (
+            <EmptyState text="이건 아직 안 적어두셨네요" />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recentMemos.map((m) => (
+                <div key={m.id} className="flex items-start gap-2 rounded-md bg-surface p-2.5">
+                  <span
+                    className="mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                    style={{ backgroundColor: colorFor(m.category).bg, color: colorFor(m.category).text }}
+                  >
+                    {m.category}
+                  </span>
+                  <p className="min-w-0 truncate text-sm text-ink">{m.summary}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {activeTab === "drawers" && (
@@ -1096,10 +1192,33 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                   {d.memberCount > 1 && <span className="ml-1 text-xs opacity-70">👥{d.memberCount}</span>}
                 </div>
                 <div className="text-xs opacity-70">{d.count}개</div>
+                {d.preview && <div className="mt-1 truncate text-xs opacity-70">{d.preview}</div>}
               </button>
             ))}
           </div>
         )}
+
+        {/* 서랍 그리드만 있으면 아래 공간이 휑해서, 전체 최근 메모를 한 번 더 보여준다 (닐슨 휴리스틱: 콘텐츠 밀도) */}
+        <div className="mt-6 border-t border-hairline pt-4">
+          <h3 className="mb-2 text-sm font-medium text-steel">최근에 넣은 것</h3>
+          {recentMemos.length === 0 ? (
+            <EmptyState text="이건 아직 안 적어두셨네요" />
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {recentMemos.slice(0, 6).map((m) => (
+                <div key={m.id} className="flex items-baseline gap-2 text-sm">
+                  <span
+                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                    style={{ backgroundColor: colorFor(m.category).bg, color: colorFor(m.category).text }}
+                  >
+                    {m.category}
+                  </span>
+                  <span className="truncate text-ink">{m.summary}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
       )}
 
@@ -1116,11 +1235,45 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           <button
             onClick={handleSearch}
             disabled={searching || !query.trim()}
-            className="h-11 rounded-md bg-primary px-5 text-sm font-medium text-on-primary disabled:bg-hairline disabled:text-muted"
+            className="h-11 rounded-md bg-primary px-5 text-sm font-medium text-on-primary disabled:bg-hairline disabled:text-muted disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {searching ? "검색 중..." : "검색"}
           </button>
         </div>
+
+        {!searched && (recentSearches.length > 0 || drawers.length > 0) && (
+          <div className="mt-3 flex flex-col gap-2">
+            {recentSearches.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-muted">최근 검색어</span>
+                {recentSearches.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => searchFor(q)}
+                    className="rounded-full bg-surface px-2.5 py-1 text-xs text-ink"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+            {drawers.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-muted">서랍 바로가기</span>
+                {drawers.slice(0, 6).map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => searchFor(d.name)}
+                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                    style={{ backgroundColor: colorFor(d.name).bg, color: colorFor(d.name).text }}
+                  >
+                    {d.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {foundSplash && (
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
@@ -1181,7 +1334,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 activeTab === t.key ? "text-primary" : "text-muted"
               }`}
             >
-              <span className="text-xl leading-none">{t.icon}</span>
+              <TabIcon name={t.key} className="h-6 w-6" />
               {t.label}
             </button>
           ))}

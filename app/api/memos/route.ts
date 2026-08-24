@@ -65,6 +65,8 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
 
   const category = request.nextUrl.searchParams.get("category");
+  const limitParam = request.nextUrl.searchParams.get("limit");
+  const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 0, 1), 50) : null;
 
   let drawerId: string | null = null;
   if (category) {
@@ -78,6 +80,7 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false });
 
   if (drawerId) query = query.eq("drawer_id", drawerId);
+  if (limit) query = query.limit(limit);
 
   const { data, error } = await query.returns<
     { id: string; content: string; summary: string | null; category_edited: boolean; source: string; created_at: string; drawer: { name: string } | null }[]

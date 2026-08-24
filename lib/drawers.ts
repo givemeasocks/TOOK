@@ -82,3 +82,23 @@ export async function countMemosAndMembers(supabase: SupabaseClient, drawerIds: 
   }
   return { memoCounts, memberCounts };
 }
+
+/** 주어진 서랍 id들의 최신 메모 한 줄 미리보기(요약 없으면 본문 앞부분)를 맵으로 돌려준다. */
+export async function latestMemoPreviews(supabase: SupabaseClient, drawerIds: string[]) {
+  const previews = new Map<string, string>();
+  if (drawerIds.length === 0) return previews;
+
+  const { data, error } = await supabase
+    .from("memos")
+    .select("drawer_id, summary, content, created_at")
+    .in("drawer_id", drawerIds)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  for (const row of (data ?? []) as { drawer_id: string; summary: string | null; content: string }[]) {
+    if (!previews.has(row.drawer_id)) {
+      previews.set(row.drawer_id, row.summary ?? row.content.slice(0, 40));
+    }
+  }
+  return previews;
+}
