@@ -972,10 +972,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         </div>
 
         {saving && (
-          <div className="mt-4 flex flex-col items-center gap-1 py-2">
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={BITE_FRAMES[chewFrame]} alt="" className="h-16 w-16" />
-            <p className="text-xs text-steel">아삭아삭... 어디에 넣을지 고민하는 중</p>
+            <img src={BITE_FRAMES[chewFrame]} alt="" className="h-64 w-64 max-w-[70vw]" />
+            <p className="text-base text-steel">아삭아삭... 어디에 넣을지 고민하는 중</p>
           </div>
         )}
 
