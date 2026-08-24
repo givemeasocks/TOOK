@@ -270,6 +270,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   const [selectedMoveIds, setSelectedMoveIds] = useState<Set<string>>(new Set());
   const [addToCalendar, setAddToCalendar] = useState(false);
   const [remindDayBefore, setRemindDayBefore] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // 버튼 두 번 눌림(모바일 더블탭 등) 때 React state로만 막으면, 두 클릭이 리렌더 전에 같은
+  // 클로저(confirming=false)를 보고 둘 다 통과해버린다 — ref는 즉시 갱신되니 이걸로 막는다.
+  const confirmingRef = useRef(false);
 
   function toggleMoveId(id: string) {
     setSelectedMoveIds((prev) => {
@@ -371,32 +375,42 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   }, []);
 
   async function confirmDraft(categories: string[]) {
-    if (!pendingDraft) return;
-    const res = await fetch("/api/memos/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        draftId: pendingDraft.draftId,
-        categories,
-        alsoMoveIds: Array.from(selectedMoveIds),
-        eventDate: addToCalendar ? pendingDraft.schedule?.date : undefined,
-        remindDayBefore,
-      }),
-    });
-    setPendingDraft(null);
-    setSelectedMoveIds(new Set());
-    setExtraCategories(new Set());
-    setAddToCalendar(false);
-    setRemindDayBefore(false);
-    if (!res.ok) {
-      const error = await res.json().then((d) => d.error).catch(() => `서버 오류 (${res.status})`);
-      showToast(`이번엔 못 먹었어요. 다시 한 번 시도해볼까요? (${error})`, "error");
-      return;
+    // 버튼 두 번 눌림(모바일 더블탭 등)으로 같은 draftId를 두 번 확정 요청하면, 먼저 온 요청이
+    // draft를 이미 소모해버려서 두 번째는 "만료된 초안" 에러가 뜬다 — 저장은 잘 됐는데 에러 토스트가
+    // 잠깐 스치듯 보이는 원인이었음. 확정 중엔 재진입을 막아서 방지한다.
+    if (!pendingDraft || confirmingRef.current) return;
+    confirmingRef.current = true;
+    setConfirming(true);
+    try {
+      const res = await fetch("/api/memos/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draftId: pendingDraft.draftId,
+          categories,
+          alsoMoveIds: Array.from(selectedMoveIds),
+          eventDate: addToCalendar ? pendingDraft.schedule?.date : undefined,
+          remindDayBefore,
+        }),
+      });
+      setPendingDraft(null);
+      setSelectedMoveIds(new Set());
+      setExtraCategories(new Set());
+      setAddToCalendar(false);
+      setRemindDayBefore(false);
+      if (!res.ok) {
+        const error = await res.json().then((d) => d.error).catch(() => `서버 오류 (${res.status})`);
+        showToast(`이번엔 못 먹었어요. 다시 한 번 시도해볼까요? (${error})`, "error");
+        return;
+      }
+      const { movedCount } = await res.json();
+      playBiteAnimation();
+      showToast(movedCount > 0 ? `툭! (+${movedCount}개 같이 옮김)` : "툭!", "success");
+      await loadDrawers();
+    } finally {
+      confirmingRef.current = false;
+      setConfirming(false);
     }
-    const { movedCount } = await res.json();
-    playBiteAnimation();
-    showToast(movedCount > 0 ? `툭! (+${movedCount}개 같이 옮김)` : "툭!", "success");
-    await loadDrawers();
   }
 
   const [selectedDrawer, setSelectedDrawer] = useState<Drawer | null>(null);
@@ -560,15 +574,22 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   return (
     <>
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 pt-10 pb-24">
-      {toast && (
+      {/* 저장 완료 순간(DESIGN_took.md 2.3/5.1 "메인 모션")을 구석 토스트의 작은 아이콘 대신
+          화면 전체에 크게 보여준다 — 안 그러면 눈에 잘 안 띄어서 놓치기 쉬움. */}
+      {biting && toast && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={BITE_FRAMES[biteFrame]} alt="" className="h-64 w-64 max-w-[70vw]" />
+          <p className="text-lg font-semibold text-ink">{toast.text}</p>
+        </div>
+      )}
+
+      {toast && !biting && (
         <div className="fixed top-6 right-6 z-50 flex items-center gap-2 rounded-md bg-ink-deep px-4 py-2 text-sm text-on-dark shadow-[var(--shadow-4)]">
-          {toast.variant === "success" && biting ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={BITE_FRAMES[biteFrame]} alt="" className="h-6 w-6" />
-          ) : toast.variant === "error" ? (
+          {toast.variant === "error" && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src="/character/horse-tilt-head.svg" alt="" className="h-6 w-6" />
-          ) : null}
+          )}
           {toast.text}
         </div>
       )}
@@ -702,14 +723,16 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                       <button
                         key={c}
                         onClick={() => confirmDraft(withExtras([c]))}
-                        className="h-11 w-full rounded-md border border-hairline-strong text-sm font-medium text-ink"
+                        disabled={confirming}
+                        className="h-11 w-full rounded-md border border-hairline-strong text-sm font-medium text-ink disabled:opacity-50"
                       >
                         {c}에만 저장
                       </button>
                     ))}
                     <button
                       onClick={() => confirmDraft(withExtras(pendingDraft.candidateCategories))}
-                      className="h-11 w-full rounded-md bg-primary text-sm font-medium text-on-primary"
+                      disabled={confirming}
+                      className="h-11 w-full rounded-md bg-primary text-sm font-medium text-on-primary disabled:opacity-50"
                     >
                       둘 다 저장
                     </button>
@@ -757,7 +780,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
                       <button
                         onClick={() => confirmDraft(withExtras([category]))}
-                        className="mt-4 h-11 w-full rounded-md bg-primary text-sm font-medium text-on-primary"
+                        disabled={confirming}
+                        className="mt-4 h-11 w-full rounded-md bg-primary text-sm font-medium text-on-primary disabled:opacity-50"
                       >
                         {isNew ? "네, 새로 만들기" : "네, 저장"}
                       </button>
@@ -769,7 +793,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                               <button
                                 key={c}
                                 onClick={() => confirmDraft(withExtras([c]))}
-                                className="rounded-full px-2 py-1 text-xs font-semibold"
+                                disabled={confirming}
+                                className="rounded-full px-2 py-1 text-xs font-semibold disabled:opacity-50"
                                 style={{ backgroundColor: colorFor(c).bg, color: colorFor(c).text }}
                               >
                                 {c}
@@ -817,7 +842,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                   const name = await askText("새 카테고리 이름");
                   if (name?.trim()) confirmDraft(withExtras([name.trim()]));
                 }}
-                className="mt-4 text-xs text-steel underline"
+                disabled={confirming}
+                className="mt-4 text-xs text-steel underline disabled:opacity-50"
               >
                 + 다른 이름으로 새 카테고리 만들기
               </button>
