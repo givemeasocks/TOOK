@@ -157,15 +157,50 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
   // 저장 순간 모션 (DESIGN_took.md 2.3/5.1): 다가감 → 무는 중 → 다 먹음, 3프레임을 1초 내외로 전환
   const BITE_FRAMES = ["/character/horse-bite-before.svg", "/character/horse-save-bite.svg", "/character/horse-bite-after.svg"];
+  // 메모 특성에 따라 저장 리액션을 다르게 보여준다: 아주 짧은 메모는 한입에 삼키고, 새벽엔 졸린 표정.
+  const QUICK_BITE_FRAMES = ["/character/horse-save-bite.svg", "/character/horse-bite-after.svg"];
+  const SLEEPY_FRAMES = ["/character/horse-sleeping.svg"];
   const [biteFrame, setBiteFrame] = useState(0);
   const [biting, setBiting] = useState(false);
+  const [saveReactionFrames, setSaveReactionFrames] = useState<string[]>(BITE_FRAMES);
 
-  function playBiteAnimation() {
+  function playBiteAnimation(kind: "default" | "quick" | "sleepy" = "default") {
+    const frames = kind === "quick" ? QUICK_BITE_FRAMES : kind === "sleepy" ? SLEEPY_FRAMES : BITE_FRAMES;
+    setSaveReactionFrames(frames);
     setBiting(true);
     setBiteFrame(0);
-    setTimeout(() => setBiteFrame(1), 300);
-    setTimeout(() => setBiteFrame(2), 650);
-    setTimeout(() => setBiting(false), 1000);
+    if (kind === "quick") {
+      setTimeout(() => setBiteFrame(1), 200);
+      setTimeout(() => setBiting(false), 500);
+    } else {
+      setTimeout(() => setBiteFrame(1), 300);
+      setTimeout(() => setBiteFrame(Math.min(2, frames.length - 1)), 650);
+      setTimeout(() => setBiting(false), 1000);
+    }
+  }
+
+  // 저장 확정 순간의 반응 문구를 메모 특성별로 고른다 (DESIGN_took.md 5.4: "옆에서 도와주는 누군가"의 톤).
+  function pickSaveReaction(contentLength: number, primaryCategory: string | undefined): {
+    kind: "default" | "quick" | "sleepy";
+    text: (movedCount: number) => string;
+  } {
+    const hour = new Date().getHours();
+    const suffix = (movedCount: number) => (movedCount > 0 ? ` (+${movedCount}개 같이 옮김)` : "");
+    if (hour >= 0 && hour < 5) {
+      return { kind: "sleepy", text: (m) => `졸린데도 잘 받아 적었어요...${suffix(m)}` };
+    }
+    const lastTwo = recentMemos.slice(0, 2);
+    if (
+      primaryCategory &&
+      lastTwo.length === 2 &&
+      lastTwo.every((memo) => memo.category === primaryCategory)
+    ) {
+      return { kind: "default", text: (m) => `또 이거야? 좋아하나 봐요 🥕${suffix(m)}` };
+    }
+    if (contentLength > 0 && contentLength < 5) {
+      return { kind: "quick", text: (m) => `어? 벌써?${suffix(m)}` };
+    }
+    return { kind: "default", text: (m) => `툭!${suffix(m)}` };
   }
 
   // AI가 분류하는 동안(저장 버튼 누른 직후) 입력창 바로 아래서 계속 우물우물 씹는 걸 크게 보여준다 —
@@ -271,6 +306,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     existingCategories: string[];
     suggestedMemos: Memo[];
     schedule: { date: string; label: string } | null;
+    contentLength: number;
   } | null>(null);
   const [selectedMoveIds, setSelectedMoveIds] = useState<Set<string>>(new Set());
   const [addToCalendar, setAddToCalendar] = useState(false);
@@ -322,7 +358,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       // AI 분류는 항상 확인을 거치므로 (/api/memos POST가 pending만 반환), 여기서 바로 완료되는 경로는 없음
       const data = await res.json();
       setSelectedDrawer(null);
-      setPendingDraft(data);
+      setPendingDraft({ ...data, contentLength: content.trim().length });
       setSelectedMoveIds(new Set());
       setExtraCategories(new Set());
       setAddToCalendar(false);
@@ -386,6 +422,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     if (!pendingDraft || confirmingRef.current) return;
     confirmingRef.current = true;
     setConfirming(true);
+    const reaction = pickSaveReaction(pendingDraft.contentLength, categories[0]);
     try {
       const res = await fetch("/api/memos/confirm", {
         method: "POST",
@@ -409,8 +446,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         return;
       }
       const { movedCount } = await res.json();
-      playBiteAnimation();
-      showToast(movedCount > 0 ? `툭! (+${movedCount}개 같이 옮김)` : "툭!", "success");
+      playBiteAnimation(reaction.kind);
+      showToast(reaction.text(movedCount), "success");
       await loadDrawers();
       await loadRecentMemos();
     } finally {
@@ -627,7 +664,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       {biting && toast && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BITE_FRAMES[biteFrame]} alt="" className="h-64 w-64 max-w-[70vw]" />
+          <img src={saveReactionFrames[Math.min(biteFrame, saveReactionFrames.length - 1)]} alt="" className="h-64 w-64 max-w-[70vw]" />
           <p className="text-lg font-semibold text-ink">{toast.text}</p>
         </div>
       )}
