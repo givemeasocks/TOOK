@@ -8,6 +8,7 @@ import EmotionCalendar from "./EmotionCalendar";
 import { TabIcon } from "./TabIcon";
 import EmptyState from "./EmptyState";
 import { getSupabaseBrowser } from "@/lib/supabase/browserClient";
+import { detectSensitiveInfo } from "@/lib/sensitiveInfo";
 
 type Memo = {
   id: string;
@@ -271,6 +272,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     existingCategories: string[];
     suggestedMemos: Memo[];
     schedule: { date: string; label: string } | null;
+    content: string;
   } | null>(null);
   const [selectedMoveIds, setSelectedMoveIds] = useState<Set<string>>(new Set());
   const [addToCalendar, setAddToCalendar] = useState(false);
@@ -322,7 +324,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       // AI 분류는 항상 확인을 거치므로 (/api/memos POST가 pending만 반환), 여기서 바로 완료되는 경로는 없음
       const data = await res.json();
       setSelectedDrawer(null);
-      setPendingDraft(data);
+      setPendingDraft({ ...data, content });
       setSelectedMoveIds(new Set());
       setExtraCategories(new Set());
       setAddToCalendar(false);
@@ -384,6 +386,13 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     // draft를 이미 소모해버려서 두 번째는 "만료된 초안" 에러가 뜬다 — 저장은 잘 됐는데 에러 토스트가
     // 잠깐 스치듯 보이는 원인이었음. 확정 중엔 재진입을 막아서 방지한다.
     if (!pendingDraft || confirmingRef.current) return;
+    if (detectSensitiveInfo(pendingDraft.content)) {
+      const isShared = categories.some((name) => (drawers.find((d) => d.name === name)?.memberCount ?? 1) > 1);
+      const message = isShared
+        ? "비밀번호 같은 정보가 보여요. 이 서랍은 공유 서랍이라 다른 멤버도 볼 수 있어요 — 그래도 저장할까요?"
+        : "비밀번호 같은 정보가 보여요. 그래도 저장할까요? (AI도 이 내용은 안 봐요 — 로컬에서만 검사돼요)";
+      if (!(await askConfirm(message))) return;
+    }
     confirmingRef.current = true;
     setConfirming(true);
     try {
