@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import InstallPrompt from "./InstallPrompt";
+import Onboarding from "./Onboarding";
 import ReminderOptIn from "./ReminderOptIn";
 import EmotionCalendar from "./EmotionCalendar";
 import { TabIcon } from "./TabIcon";
@@ -130,6 +131,12 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
   const [nickname, setNickname] = useState(userNickname);
   const [nicknameInput, setNicknameInput] = useState(userNickname);
   const [savingNickname, setSavingNickname] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+
+  // 처음 방문한 사람에게만 한 번 가볍게 기능을 소개한다 — 계정 메뉴에서 다시 볼 수도 있음.
+  useEffect(() => {
+    if (!localStorage.getItem("took_onboarding_v1_seen")) setOnboardingOpen(true);
+  }, []);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [dialogInput, setDialogInput] = useState("");
   const dialogResolveRef = useRef<((value: string | null) => void) | null>(null);
@@ -1461,6 +1468,15 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
                 저장할 때 톡 소리
               </label>
               <button
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setOnboardingOpen(true);
+                }}
+                className="text-steel underline"
+              >
+                기능 둘러보기
+              </button>
+              <button
                 onClick={async () => {
                   await getSupabaseBrowser().auth.signOut();
                   router.refresh();
@@ -1473,6 +1489,14 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
           )}
         </div>
       </header>
+
+      <Onboarding
+        open={onboardingOpen}
+        onClose={() => {
+          setOnboardingOpen(false);
+          localStorage.setItem("took_onboarding_v1_seen", "1");
+        }}
+      />
 
       <InstallPrompt />
       <ReminderOptIn />
