@@ -98,7 +98,7 @@ function CategorySelect({
 
 type Dialog =
   | { kind: "prompt"; message: string; defaultValue?: string }
-  | { kind: "confirm"; message: string }
+  | { kind: "confirm"; message: string; character?: string }
   | { kind: "choice"; message: string; choices: { label: string; value: string }[] };
 
 const TABS = [
@@ -125,8 +125,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     });
   }
 
-  function askConfirm(message: string): Promise<boolean> {
-    setDialog({ kind: "confirm", message });
+  function askConfirm(message: string, character?: string): Promise<boolean> {
+    setDialog({ kind: "confirm", message, character });
     return new Promise((resolve) => {
       dialogResolveRef.current = (value) => resolve(value !== null);
     });
@@ -572,7 +572,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   }
 
   async function handleDeleteMemo(memo: Memo) {
-    if (!(await askConfirm("이 메모를 삭제할까요?"))) return;
+    if (!(await askConfirm("어... 진짜 없앨 거야? 나 이거 좋아했는데", "/character/horse-tilt-head.svg"))) return;
     const res = await fetch(`/api/memos/${memo.id}`, { method: "DELETE" });
     if (!res.ok) return;
     setCertain((list) => list.filter((m) => m.id !== memo.id));
@@ -779,6 +779,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             className="w-full max-w-[22rem] rounded-lg bg-canvas p-5 shadow-[var(--shadow-4)]"
             onClick={(e) => e.stopPropagation()}
           >
+            {dialog.kind === "confirm" && dialog.character && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={dialog.character} alt="" className="mx-auto mb-3 h-20 w-20" />
+            )}
             <p className="whitespace-pre-line text-sm text-ink">{dialog.message}</p>
             {dialog.kind === "prompt" && (
               <input
