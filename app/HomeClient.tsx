@@ -572,7 +572,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   }
 
   async function handleDeleteMemo(memo: Memo) {
-    if (!(await askConfirm("어... 진짜 없앨 거야? 나 이거 좋아했는데", "/character/horse-tilt-head.svg"))) return;
+    if (!(await askConfirm("어... 진짜 없앨 거야? 나 이거 좋아했는데", "/character/horse-confused.svg"))) return;
     const res = await fetch(`/api/memos/${memo.id}`, { method: "DELETE" });
     if (!res.ok) return;
     setCertain((list) => list.filter((m) => m.id !== memo.id));
