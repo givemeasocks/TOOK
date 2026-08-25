@@ -111,7 +111,8 @@ function CategorySelect({
 type Dialog =
   | { kind: "prompt"; message: string; defaultValue?: string }
   | { kind: "confirm"; message: string }
-  | { kind: "choice"; message: string; choices: { label: string; value: string }[] };
+  | { kind: "choice"; message: string; choices: { label: string; value: string }[] }
+  | { kind: "character-confirm"; message: string; image: string };
 
 const TABS = [
   { key: "input", label: "넣기" },
@@ -139,6 +140,14 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
   function askConfirm(message: string): Promise<boolean> {
     setDialog({ kind: "confirm", message });
+    return new Promise((resolve) => {
+      dialogResolveRef.current = (value) => resolve(value !== null);
+    });
+  }
+
+  // 삭제처럼 되돌릴 수 없는 결정엔 시스템 경고 대신 캐릭터가 아쉬워하는 톤으로 한 번 더 물어본다 (5번).
+  function askCharacterConfirm(message: string, image: string): Promise<boolean> {
+    setDialog({ kind: "character-confirm", message, image });
     return new Promise((resolve) => {
       dialogResolveRef.current = (value) => resolve(value !== null);
     });
@@ -560,7 +569,13 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         await loadDrawers();
         return;
       }
-      if (!(await askConfirm(`정말 메모 ${count}개를 전부 삭제할까요? 되돌릴 수 없어요.`))) return;
+      if (
+        !(await askCharacterConfirm(
+          `어... 진짜 없앨 거야? 나 이거 좋아했는데.\n메모 ${count}개가 전부 사라져요, 되돌릴 수 없어요.`,
+          "/character/horse-tilt-head.svg"
+        ))
+      )
+        return;
     }
     const res = await fetch(`/api/drawers?name=${encodeURIComponent(drawer.name)}`, { method: "DELETE" });
     if (!res.ok) return;
@@ -818,6 +833,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             className="w-full max-w-[22rem] rounded-lg bg-canvas p-5 shadow-[var(--shadow-4)]"
             onClick={(e) => e.stopPropagation()}
           >
+            {dialog.kind === "character-confirm" && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={dialog.image} alt="" className="mx-auto mb-3 h-24 w-24" />
+            )}
             <p className="whitespace-pre-line text-sm text-ink">{dialog.message}</p>
             {dialog.kind === "prompt" && (
               <input
