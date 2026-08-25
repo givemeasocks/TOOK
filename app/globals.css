@@ -122,3 +122,20 @@ body {
   font-size: 16px;
   line-height: 1.6;
 }
+
+/* 서랍 카드 롱프레스 — 아이폰 홈 화면 편집 모드처럼 살짝 흔들리는 애니메이션 */
+@keyframes drawer-jiggle {
+  0% {
+    transform: rotate(-1deg);
+  }
+  50% {
+    transform: rotate(1deg);
+  }
+  100% {
+    transform: rotate(-1deg);
+  }
+}
+
+.drawer-jiggle {
+  animation: drawer-jiggle 0.22s ease-in-out infinite;
+}

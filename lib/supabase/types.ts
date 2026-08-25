@@ -15,4 +15,5 @@ export type DrawerMemberRow = {
   invited_email: string;
   status: "pending" | "accepted";
   created_at: string;
+  last_visited_at: string | null;
 };

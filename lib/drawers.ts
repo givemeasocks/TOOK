@@ -44,21 +44,61 @@ export async function findOrCreateDrawerId(
   return drawer.id as string;
 }
 
-/** 내가 멤버로 들어가 있는 모든 서랍을 {id, name} 목록으로 반환한다 (중복 이름 포함, 호출부에서 필요시 dedup). */
+/** 내가 멤버로 들어가 있는 모든 서랍을 {id, name, createdAt} 목록으로 반환한다 (중복 이름 포함, 호출부에서 필요시 dedup). */
 export async function listMemberDrawers(
   supabase: SupabaseClient,
   userId: string
-): Promise<{ id: string; name: string }[]> {
+): Promise<{ id: string; name: string; createdAt: string }[]> {
   const { data, error } = await supabase
     .from("drawer_members")
-    .select("drawer_id, drawers!inner(id, name)")
+    .select("drawer_id, drawers!inner(id, name, created_at)")
     .eq("user_id", userId)
     .eq("status", "accepted");
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => {
-    const drawer = r.drawers as unknown as { id: string; name: string };
-    return { id: drawer.id, name: drawer.name };
+    const drawer = r.drawers as unknown as { id: string; name: string; created_at: string };
+    return { id: drawer.id, name: drawer.name, createdAt: drawer.created_at };
   });
+}
+
+/** 주어진 서랍 id들의 (user_id → invited_email) 맵을, 서랍별로 묶어서 돌려준다. 작성자 표기/기여 카운트에 씀. */
+export async function memberEmailsByDrawer(supabase: SupabaseClient, drawerIds: string[]) {
+  const byDrawer = new Map<string, Map<string, string>>();
+  if (drawerIds.length === 0) return byDrawer;
+
+  const { data, error } = await supabase
+    .from("drawer_members")
+    .select("drawer_id, user_id, invited_email")
+    .eq("status", "accepted")
+    .in("drawer_id", drawerIds);
+  if (error) throw new Error(error.message);
+
+  for (const row of (data ?? []) as { drawer_id: string; user_id: string | null; invited_email: string }[]) {
+    if (!row.user_id) continue;
+    if (!byDrawer.has(row.drawer_id)) byDrawer.set(row.drawer_id, new Map());
+    byDrawer.get(row.drawer_id)!.set(row.user_id, row.invited_email);
+  }
+  return byDrawer;
+}
+
+/** 주어진 서랍 id들의 가장 최근 메모 작성자(user_id)와 생성 시각을 맵으로 돌려준다. */
+export async function latestMemoAuthors(supabase: SupabaseClient, drawerIds: string[]) {
+  const latest = new Map<string, { userId: string | null; createdAt: string }>();
+  if (drawerIds.length === 0) return latest;
+
+  const { data, error } = await supabase
+    .from("memos")
+    .select("drawer_id, user_id, created_at")
+    .in("drawer_id", drawerIds)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  for (const row of (data ?? []) as { drawer_id: string; user_id: string | null; created_at: string }[]) {
+    if (!latest.has(row.drawer_id)) {
+      latest.set(row.drawer_id, { userId: row.user_id, createdAt: row.created_at });
+    }
+  }
+  return latest;
 }
 
 /** 주어진 서랍 id들의 메모 개수 / 멤버 개수를 한 번씩만 조회해서 맵으로 돌려준다. */

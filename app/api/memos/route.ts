@@ -76,14 +76,14 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from("memos")
-    .select("id, content, summary, category_edited, source, created_at, drawer:drawers(name)")
+    .select("id, content, summary, category_edited, source, created_at, user_id, drawer:drawers(name)")
     .order("created_at", { ascending: false });
 
   if (drawerId) query = query.eq("drawer_id", drawerId);
   if (limit) query = query.limit(limit);
 
   const { data, error } = await query.returns<
-    { id: string; content: string; summary: string | null; category_edited: boolean; source: string; created_at: string; drawer: { name: string } | null }[]
+    { id: string; content: string; summary: string | null; category_edited: boolean; source: string; created_at: string; user_id: string | null; drawer: { name: string } | null }[]
   >();
 
   if (error) {

@@ -19,6 +19,7 @@ export default function EmotionCalendar() {
   const [cursor, setCursor] = useState(() => new Date());
   const [entries, setEntries] = useState<Map<string, EntryRow>>(new Map());
   const [eventDates, setEventDates] = useState<Set<string>>(new Set());
+  const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -33,12 +34,14 @@ export default function EmotionCalendar() {
     try {
       const res = await fetch(`/api/emotions?month=${toMonthKey(d)}`);
       if (!res.ok) return;
-      const { entries: rows, eventDates: eventDateRows } = (await res.json()) as {
+      const { entries: rows, eventDates: eventDateRows, streak: streakCount } = (await res.json()) as {
         entries: EntryRow[];
         eventDates: string[];
+        streak: number;
       };
       setEntries(new Map(rows.map((r) => [r.entry_date, r])));
       setEventDates(new Set(eventDateRows));
+      setStreak(streakCount);
     } finally {
       setLoading(false);
     }
@@ -96,7 +99,10 @@ export default function EmotionCalendar() {
   return (
     <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-ink">감정 캘린더</h2>
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-lg font-semibold text-ink">감정 캘린더</h2>
+          {streak >= 2 && <span className="text-xs text-muted">{streak}일째 툭 던지는 중</span>}
+        </div>
         <div className="flex items-center gap-3 text-sm text-steel">
           <button onClick={() => setCursor(new Date(year, month - 1, 1))} aria-label="이전 달">
             ‹

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
 import { isEmotionKey } from "@/lib/emotions";
+import { computeStreak, kstDateString, kstDateStringDaysAgo } from "@/lib/kstDate";
 
 function nextMonthStart(month: string): string {
   const [y, m] = month.split("-").map(Number);
@@ -59,7 +60,13 @@ export async function GET(request: NextRequest) {
   }
 
   if (month) {
-    const [{ data, error }, { data: eventDates, error: eventDatesError }] = await Promise.all([
+    const streakWindowStart = kstDateStringDaysAgo(365);
+    const [
+      { data, error },
+      { data: eventDates, error: eventDatesError },
+      { data: streakEntries, error: streakEntriesError },
+      { data: streakMemos, error: streakMemosError },
+    ] = await Promise.all([
       supabase
         .from("emotion_entries")
         .select("entry_date, emotion, source")
@@ -72,6 +79,18 @@ export async function GET(request: NextRequest) {
         .eq("user_id", user.id)
         .gte("event_date", `${month}-01`)
         .lt("event_date", nextMonthStart(month)),
+      // 스트릭 계산용 — 최근 1년치 감정 기록일
+      supabase
+        .from("emotion_entries")
+        .select("entry_date")
+        .eq("user_id", user.id)
+        .gte("entry_date", streakWindowStart),
+      // 스트릭 계산용 — 최근 1년치 메모 작성일 (KST 기준으로 날짜만 뽑아서 씀)
+      supabase
+        .from("memos")
+        .select("created_at")
+        .eq("user_id", user.id)
+        .gte("created_at", `${streakWindowStart}T00:00:00+09:00`),
     ]);
 
     if (error) {
@@ -80,9 +99,22 @@ export async function GET(request: NextRequest) {
     if (eventDatesError) {
       return NextResponse.json({ error: eventDatesError.message }, { status: 500 });
     }
+    if (streakEntriesError) {
+      return NextResponse.json({ error: streakEntriesError.message }, { status: 500 });
+    }
+    if (streakMemosError) {
+      return NextResponse.json({ error: streakMemosError.message }, { status: 500 });
+    }
+
+    const activeDates = new Set<string>([
+      ...(streakEntries ?? []).map((r) => r.entry_date as string),
+      ...(streakMemos ?? []).map((r) => kstDateString(new Date(r.created_at as string))),
+    ]);
+
     return NextResponse.json({
       entries: data ?? [],
       eventDates: Array.from(new Set((eventDates ?? []).map((r) => r.event_date as string))),
+      streak: computeStreak(activeDates),
     });
   }
 

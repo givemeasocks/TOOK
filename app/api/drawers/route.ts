@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
-import { countMemosAndMembers, findDrawerIdByName, latestMemoPreviews, listMemberDrawers } from "@/lib/drawers";
+import {
+  countMemosAndMembers,
+  findDrawerIdByName,
+  latestMemoAuthors,
+  latestMemoPreviews,
+  listMemberDrawers,
+  memberEmailsByDrawer,
+} from "@/lib/drawers";
 
 export async function GET() {
   const { supabase, user } = await requireUser();
@@ -8,26 +15,39 @@ export async function GET() {
 
   const memberDrawers = listDeduped(await listMemberDrawers(supabase, user.id));
   const ids = memberDrawers.map((d) => d.id);
-  const [{ memoCounts, memberCounts }, previews] = await Promise.all([
+  const [{ memoCounts, memberCounts }, previews, latestAuthors, emailsByDrawer] = await Promise.all([
     countMemosAndMembers(supabase, ids),
     latestMemoPreviews(supabase, ids),
+    latestMemoAuthors(supabase, ids),
+    memberEmailsByDrawer(supabase, ids),
   ]);
 
   const drawers = memberDrawers
-    .map((d) => ({
-      id: d.id,
-      name: d.name,
-      count: memoCounts.get(d.id) ?? 0,
-      memberCount: memberCounts.get(d.id) ?? 1,
-      preview: previews.get(d.id) ?? null,
-    }))
+    .map((d) => {
+      const memberCount = memberCounts.get(d.id) ?? 1;
+      const latest = latestAuthors.get(d.id);
+      // 개인 서랍(멤버 1명)에선 "내가 마지막으로 넣음"이 당연해서 표시할 필요 없음 — 공동 서랍에서만 의미 있음.
+      const lastAuthorEmail =
+        memberCount > 1 && latest?.userId && latest.userId !== user.id
+          ? (emailsByDrawer.get(d.id)?.get(latest.userId) ?? null)
+          : null;
+      return {
+        id: d.id,
+        name: d.name,
+        count: memoCounts.get(d.id) ?? 0,
+        memberCount,
+        preview: previews.get(d.id) ?? null,
+        createdAt: d.createdAt,
+        lastAuthorEmail,
+      };
+    })
     .sort((a, b) => b.count - a.count);
 
   return NextResponse.json({ drawers });
 }
 
 // 이름이 같은 서랍이 여러 개면(내 개인 서랍 + 공유받은 동명 서랍) 목록에는 하나로만 보여준다.
-function listDeduped(drawers: { id: string; name: string }[]) {
+function listDeduped<T extends { id: string; name: string }>(drawers: T[]): T[] {
   const seen = new Set<string>();
   return drawers.filter((d) => {
     if (seen.has(d.name)) return false;

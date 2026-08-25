@@ -8,6 +8,7 @@ import EmotionCalendar from "./EmotionCalendar";
 import { TabIcon } from "./TabIcon";
 import EmptyState from "./EmptyState";
 import { getSupabaseBrowser } from "@/lib/supabase/browserClient";
+import { detectSensitiveInfo } from "@/lib/sensitiveInfo";
 
 type Memo = {
   id: string;
@@ -16,6 +17,7 @@ type Memo = {
   category: string;
   category_edited?: boolean;
   similarity?: number;
+  user_id?: string | null;
 };
 
 type Drawer = {
@@ -24,6 +26,8 @@ type Drawer = {
   count: number;
   memberCount: number;
   preview: string | null;
+  createdAt: string;
+  lastAuthorEmail: string | null;
 };
 
 type DrawerMember = {
@@ -52,6 +56,14 @@ const HASH_CATEGORY_PALETTE = [
   { bg: "#DCC3B8", text: "#5c4030" },
   { bg: "#D3C6A6", text: "#4a4234" },
 ];
+
+// 공동 서랍 상세의 "같이 채운 지 N일째" 문구용 (item 12). 만든 날 자체를 1일째로 센다.
+function daysSince(isoDate: string): number {
+  const created = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.setHours(0, 0, 0, 0) - created.setHours(0, 0, 0, 0);
+  return Math.floor(diffMs / (24 * 60 * 60 * 1000)) + 1;
+}
 
 function colorFor(category: string): { bg: string; text: string } {
   if (FIXED_CATEGORY_COLORS[category]) return FIXED_CATEGORY_COLORS[category];
@@ -99,7 +111,8 @@ function CategorySelect({
 type Dialog =
   | { kind: "prompt"; message: string; defaultValue?: string }
   | { kind: "confirm"; message: string; character?: string }
-  | { kind: "choice"; message: string; choices: { label: string; value: string }[] };
+  | { kind: "choice"; message: string; choices: { label: string; value: string }[] }
+  | { kind: "character-confirm"; message: string; image: string };
 
 const TABS = [
   { key: "input", label: "넣기" },
@@ -127,6 +140,14 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
   function askConfirm(message: string, character?: string): Promise<boolean> {
     setDialog({ kind: "confirm", message, character });
+    return new Promise((resolve) => {
+      dialogResolveRef.current = (value) => resolve(value !== null);
+    });
+  }
+
+  // 삭제처럼 되돌릴 수 없는 결정엔 시스템 경고 대신 캐릭터가 아쉬워하는 톤으로 한 번 더 물어본다 (5번).
+  function askCharacterConfirm(message: string, image: string): Promise<boolean> {
+    setDialog({ kind: "character-confirm", message, image });
     return new Promise((resolve) => {
       dialogResolveRef.current = (value) => resolve(value !== null);
     });
@@ -208,12 +229,15 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     }
   }
 
-  // 저장 순간 모션 (DESIGN_took.md 2.3/5.1): 다가감 → 무는 중 → 다 먹음, 3프레임을 1초 내외로 전환
+  // 저장 순간 모션 (DESIGN_took.md 2.3/5.1): 다가감 → 무는 중 → 다 먹음, 3프레임을 1초 내외로 전환.
+  // 공동 서랍 저장은 다른 반응(하이파이브/어깨동무 단일 프레임)을 쓴다 — collab 저장 리액션(9/10번).
   const BITE_FRAMES = ["/character/horse-bite-before.svg", "/character/horse-save-bite.svg", "/character/horse-bite-after.svg"];
   // 메모 특성에 따라 저장 리액션을 다르게 보여준다: 아주 짧은 메모는 한입에 삼키고, 새벽엔 졸린 표정.
   const QUICK_BITE_FRAMES = ["/character/horse-save-bite.svg", "/character/horse-bite-after.svg"];
   const SLEEPY_FRAMES = ["/character/horse-sleeping.svg"];
   const BURST_FRAMES = ["/character/horse-bursting.svg"];
+  const SHARED_FRAMES = ["/character/horse-high-five.svg"];
+  const TELEPATHY_FRAMES = ["/character/horse-shoulder-hug.svg"];
   const [biteFrame, setBiteFrame] = useState(0);
   const [biting, setBiting] = useState(false);
   const [saveReactionFrames, setSaveReactionFrames] = useState<string[]>(BITE_FRAMES);
@@ -222,12 +246,28 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   // 전체 메모 개수가 50/100/500개를 새로 넘긴 순간의 축하 연출 (저장 리액션이 끝난 다음에 이어서 등장)
   const [milestoneCelebration, setMilestoneCelebration] = useState<number | null>(null);
 
-  function playBiteAnimation(kind: "default" | "quick" | "sleepy" | "burst" = "default") {
+  type ReactionKind = "default" | "quick" | "sleepy" | "burst" | "shared" | "telepathy";
+
+  function playBiteAnimation(kind: ReactionKind = "default") {
     const frames =
-      kind === "quick" ? QUICK_BITE_FRAMES : kind === "sleepy" ? SLEEPY_FRAMES : kind === "burst" ? BURST_FRAMES : BITE_FRAMES;
+      kind === "quick"
+        ? QUICK_BITE_FRAMES
+        : kind === "sleepy"
+          ? SLEEPY_FRAMES
+          : kind === "burst"
+            ? BURST_FRAMES
+            : kind === "shared"
+              ? SHARED_FRAMES
+              : kind === "telepathy"
+                ? TELEPATHY_FRAMES
+                : BITE_FRAMES;
     setSaveReactionFrames(frames);
     setBiting(true);
     setBiteFrame(0);
+    if (frames.length === 1) {
+      setTimeout(() => setBiting(false), 1000);
+      return;
+    }
     if (kind === "quick") {
       setTimeout(() => setBiteFrame(1), 200);
       setTimeout(() => setBiting(false), 500);
@@ -238,10 +278,12 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     }
   }
 
-  // 저장 확정 순간의 반응 문구를 메모 특성별로 고른다 (DESIGN_took.md 5.4: "옆에서 도와주는 누군가"의 톤).
-  // 우선순위: 새벽 졸림(신체 상태) > 과식(행동 패턴, 눈에 띄는 이스터에그) > 반복 카테고리 > 짧은 메모 > 기본
+  // 저장 확정 순간의 반응(모션+문구)을 메모 특성·공동 서랍 신호별로 고른다 (DESIGN_took.md 5.4: "옆에서
+  // 도와주는 누군가"의 톤). 우선순위: 새벽 졸림(신체 상태) > 과식(행동 패턴) > 텔레파시(협업, 희귀) >
+  // 공동 서랍 저장 > 반복 카테고리 > 짧은 메모 > 기본. 텔레파시/공동서랍 여부는 서버 응답(collab)에서만
+  // 알 수 있어서, 개인 신호(contentLength/isBurst/시간)는 요청 전에 먼저 판단해두고 응답을 받은 뒤 합친다.
   function pickSaveReaction(contentLength: number, primaryCategory: string | undefined, isBurst: boolean): {
-    kind: "default" | "quick" | "sleepy" | "burst";
+    kind: ReactionKind;
     text: (movedCount: number) => string;
   } {
     const hour = new Date().getHours();
@@ -264,6 +306,26 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       return { kind: "quick", text: (m) => `어? 벌써?${suffix(m)}` };
     }
     return { kind: "default", text: (m) => `툭!${suffix(m)}` };
+  }
+
+  // 서버에서만 알 수 있는 collab(공동 서랍/텔레파시) 신호를, 요청 전에 미리 골라둔 개인 반응과 합친다.
+  // 새벽 졸림/과식처럼 이미 더 특별한 개인 반응이 나왔으면 그대로 두고, 아니면 collab 신호로 덮어쓴다.
+  function resolveFinalReaction(
+    reaction: { kind: ReactionKind; text: (movedCount: number) => string },
+    collab: { shared: boolean; telepathy: boolean } | undefined,
+    movedCount: number
+  ): { kind: ReactionKind; text: string } {
+    if (reaction.kind === "sleepy" || reaction.kind === "burst") {
+      return { kind: reaction.kind, text: reaction.text(movedCount) };
+    }
+    if (collab?.telepathy) {
+      const suffix = movedCount > 0 ? ` (+${movedCount}개 같이 옮김)` : "";
+      return { kind: "telepathy", text: `오, 둘이 텔레파시 통했나 봐${suffix}` };
+    }
+    if (collab?.shared) {
+      return { kind: "shared", text: reaction.text(movedCount) };
+    }
+    return { kind: reaction.kind, text: reaction.text(movedCount) };
   }
 
   // AI가 분류하는 동안(저장 버튼 누른 직후) 입력창 바로 아래서 계속 우물우물 씹는 걸 크게 보여준다 —
@@ -370,6 +432,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     suggestedMemos: Memo[];
     schedule: { date: string; label: string } | null;
     contentLength: number;
+    content: string;
   } | null>(null);
   const [selectedMoveIds, setSelectedMoveIds] = useState<Set<string>>(new Set());
   const [addToCalendar, setAddToCalendar] = useState(false);
@@ -421,7 +484,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       // AI 분류는 항상 확인을 거치므로 (/api/memos POST가 pending만 반환), 여기서 바로 완료되는 경로는 없음
       const data = await res.json();
       setSelectedDrawer(null);
-      setPendingDraft({ ...data, contentLength: content.trim().length });
+      setPendingDraft({ ...data, contentLength: content.trim().length, content });
       setSelectedMoveIds(new Set());
       setExtraCategories(new Set());
       setAddToCalendar(false);
@@ -483,6 +546,13 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     // draft를 이미 소모해버려서 두 번째는 "만료된 초안" 에러가 뜬다 — 저장은 잘 됐는데 에러 토스트가
     // 잠깐 스치듯 보이는 원인이었음. 확정 중엔 재진입을 막아서 방지한다.
     if (!pendingDraft || confirmingRef.current) return;
+    if (detectSensitiveInfo(pendingDraft.content)) {
+      const isShared = categories.some((name) => (drawers.find((d) => d.name === name)?.memberCount ?? 1) > 1);
+      const message = isShared
+        ? "비밀번호 같은 정보가 보여요. 이 서랍은 공유 서랍이라 다른 멤버도 볼 수 있어요 — 그래도 저장할까요?"
+        : "비밀번호 같은 정보가 보여요. 그래도 저장할까요? (AI도 이 내용은 안 봐요 — 로컬에서만 검사돼요)";
+      if (!(await askConfirm(message))) return;
+    }
     confirmingRef.current = true;
     setConfirming(true);
     const now = Date.now();
@@ -512,15 +582,16 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         showToast(`이번엔 못 먹었어요. 다시 한 번 시도해볼까요? (${error})`, "error");
         return;
       }
-      const { movedCount, milestoneReached } = await res.json();
-      playBiteAnimation(reaction.kind);
-      showToast(reaction.text(movedCount), "success");
+      const { movedCount, milestoneReached, collab } = await res.json();
+      const finalReaction = resolveFinalReaction(reaction, collab, movedCount);
+      playBiteAnimation(finalReaction.kind);
+      showToast(finalReaction.text, "success");
       // 새 서랍이 생기는 경우엔 평범한 저장보다 조금 더 뚜렷한 진동으로 구분해준다.
       vibrate(isNewDrawer ? [20, 30, 20] : 15);
       playTockSound();
       if (milestoneReached) {
         // 저장 리액션 애니메이션(quick=500ms, 그 외=1000ms)이 끝난 다음에 이어서 등장시킨다.
-        const reactionDuration = reaction.kind === "quick" ? 550 : 1050;
+        const reactionDuration = finalReaction.kind === "quick" ? 550 : 1050;
         setTimeout(() => {
           setMilestoneCelebration(milestoneReached);
           setTimeout(() => setMilestoneCelebration(null), 1800);
@@ -540,12 +611,34 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   const [drawerMembers, setDrawerMembers] = useState<DrawerMember[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
+  const [visitBanner, setVisitBanner] = useState<string | null>(null);
 
   async function loadMembers(drawerId: string) {
     const res = await fetch(`/api/drawers/${drawerId}/members`);
     if (!res.ok) return;
-    const { members } = await res.json();
+    const { members, visitBanner } = await res.json();
     setDrawerMembers(members);
+    setVisitBanner(visitBanner ?? null);
+  }
+
+  // 작성자 표기(6번)/기여 카운트(8번)에 같이 쓴다 — "나"는 내 이메일과 일치하는 멤버로 판단.
+  function authorLabel(userId: string | null | undefined): string | null {
+    if (!userId) return null;
+    const member = drawerMembers.find((m) => m.user_id === userId);
+    if (!member) return null;
+    return member.invited_email.toLowerCase() === userEmail.toLowerCase() ? "나" : member.invited_email;
+  }
+
+  function contributionSummary(): string | null {
+    if (!selectedDrawer || selectedDrawer.memberCount <= 1) return null;
+    const counts = new Map<string, number>();
+    for (const m of drawerMemos) {
+      const label = authorLabel(m.user_id) ?? "알 수 없음";
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    if (counts.size === 0) return null;
+    const entries = Array.from(counts.entries()).sort((a, b) => (a[0] === "나" ? -1 : b[0] === "나" ? 1 : b[1] - a[1]));
+    return entries.map(([label, count]) => `${label} ${count}`).join(" · ");
   }
 
   async function handleInvite() {
@@ -614,7 +707,13 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         await loadDrawers();
         return;
       }
-      if (!(await askConfirm(`정말 메모 ${count}개를 전부 삭제할까요? 되돌릴 수 없어요.`))) return;
+      if (
+        !(await askCharacterConfirm(
+          `어... 진짜 없앨 거야? 나 이거 좋아했는데.\n메모 ${count}개가 전부 사라져요, 되돌릴 수 없어요.`,
+          "/character/horse-confused.svg"
+        ))
+      )
+        return;
     }
     const res = await fetch(`/api/drawers?name=${encodeURIComponent(drawer.name)}`, { method: "DELETE" });
     if (!res.ok) return;
@@ -633,6 +732,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     }
     setDrawerLoading(false);
     await loadMembers(drawer.id);
+    if (drawer.memberCount > 1) await loadReactions(drawer.id);
   }
 
   function closeDrawer() {
@@ -640,6 +740,53 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     setDrawerMemos([]);
     setDrawerMembers([]);
     setInviteEmail("");
+    setVisitBanner(null);
+    setDrawerReactions(new Map());
+    setReactionPickerFor(null);
+  }
+
+  // 13번: 공동 서랍 메모 카드 롱프레스 → 이모지 1개(👀 😂 ❤️) 반응. 텍스트 댓글 아님, 사람당 1개.
+  const [drawerReactions, setDrawerReactions] = useState<Map<string, { userId: string; emoji: string }[]>>(new Map());
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
+  const reactionPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function loadReactions(drawerId: string) {
+    const res = await fetch(`/api/drawers/${drawerId}/reactions`);
+    if (!res.ok) return;
+    const { reactions } = (await res.json()) as { reactions: { memoId: string; userId: string; emoji: string }[] };
+    const byMemo = new Map<string, { userId: string; emoji: string }[]>();
+    for (const r of reactions) {
+      if (!byMemo.has(r.memoId)) byMemo.set(r.memoId, []);
+      byMemo.get(r.memoId)!.push({ userId: r.userId, emoji: r.emoji });
+    }
+    setDrawerReactions(byMemo);
+  }
+
+  function handleMemoPressStart(memoId: string) {
+    reactionPressTimerRef.current = setTimeout(() => setReactionPickerFor(memoId), 500);
+  }
+  function handleMemoPressEnd() {
+    if (reactionPressTimerRef.current) {
+      clearTimeout(reactionPressTimerRef.current);
+      reactionPressTimerRef.current = null;
+    }
+  }
+
+  async function pickReaction(memoId: string, emoji: string) {
+    setReactionPickerFor(null);
+    if (!selectedDrawer) return;
+    const myUserId = drawerMembers.find((m) => m.invited_email.toLowerCase() === userEmail.toLowerCase())?.user_id;
+    const mine = (drawerReactions.get(memoId) ?? []).find((r) => r.userId === myUserId);
+    if (mine && mine.emoji === emoji) {
+      await fetch(`/api/memos/${memoId}/reactions`, { method: "DELETE" });
+    } else {
+      await fetch(`/api/memos/${memoId}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji }),
+      });
+    }
+    await loadReactions(selectedDrawer.id);
   }
 
   async function handleCategoryChange(memo: Memo, newCategory: string) {
@@ -676,6 +823,59 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
 
   // 검색해서 확실한 결과를 찾은 순간도 "메인 모션"급으로 잠깐 화면 전체에 크게 보여준다.
   const [foundSplash, setFoundSplash] = useState(false);
+
+  // 서랍이 10개 단위로 쌓이면 가벼운 코멘트를 보여준다. 어느 임계값까지 닫았는지는
+  // 기기별로만 의미 있는 편의 기능이라 로컬스토리지에 둔다 (recentSearches와 같은 패턴).
+  const [dismissedDrawerThresholds, setDismissedDrawerThresholds] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("took:dismissedDrawerThresholds");
+      if (raw) setDismissedDrawerThresholds(JSON.parse(raw));
+    } catch {
+      // 시크릿 모드 등에서 접근 자체가 막힐 수 있음 — 그냥 매번 보여주는 쪽으로 둔다
+    }
+  }, []);
+
+  function dismissDrawerThreshold(drawerId: string, threshold: number) {
+    setDismissedDrawerThresholds((prev) => {
+      const next = { ...prev, [drawerId]: threshold };
+      try {
+        localStorage.setItem("took:dismissedDrawerThresholds", JSON.stringify(next));
+      } catch {
+        // 저장 안 돼도 이번 세션 안에서는 계속 닫힌 채로 둠
+      }
+      return next;
+    });
+  }
+
+  // 서랍 카드 롱프레스 → 아이폰 홈 화면 편집 모드처럼 흔들리는 모드 진입.
+  // 흔들리는 동안 카드를 탭하면 그대로 서랍 상세(이름 변경/삭제가 이미 있는 화면)를 연다.
+  const [drawersJiggling, setDrawersJiggling] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  function handleDrawerPressStart() {
+    longPressFiredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      setDrawersJiggling(true);
+    }, 500);
+  }
+  function handleDrawerPressEnd() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+  function handleDrawerClick(d: Drawer) {
+    if (longPressFiredRef.current) {
+      // 롱프레스가 막 발동한 직후의 클릭(포인터를 뗄 때 같이 발생)은 무시 — 흔들리기 시작하자마자 열리면 어색함
+      longPressFiredRef.current = false;
+      return;
+    }
+    setDrawersJiggling(false);
+    openDrawer(d);
+  }
 
   // 최근 검색어는 이 기기에서만 의미 있는 편의 기능이라 로컬스토리지에 둔다 (서버 저장 불필요).
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -782,6 +982,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             {dialog.kind === "confirm" && dialog.character && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={dialog.character} alt="" className="mx-auto mb-3 h-20 w-20" />
+            )}
+            {dialog.kind === "character-confirm" && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={dialog.image} alt="" className="mx-auto mb-3 h-24 w-24" />
             )}
             <p className="whitespace-pre-line text-sm text-ink">{dialog.message}</p>
             {dialog.kind === "prompt" && (
@@ -1042,7 +1246,12 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-2">
-              <h3 className="font-heading text-xl font-bold text-ink">{selectedDrawer.name}</h3>
+              <div>
+                <h3 className="font-heading text-xl font-bold text-ink">{selectedDrawer.name}</h3>
+                {selectedDrawer.memberCount > 1 && (
+                  <p className="text-xs text-steel">같이 채운 지 {daysSince(selectedDrawer.createdAt)}일째</p>
+                )}
+              </div>
               <div className="flex shrink-0 items-center gap-3">
                 <button onClick={() => renameDrawer(selectedDrawer)} className="text-xs text-steel underline">
                   이름 바꾸기
@@ -1058,6 +1267,15 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 </button>
               </div>
             </div>
+
+            {visitBanner && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg bg-surface px-3 py-2 text-xs text-steel">
+                <span className="flex-1">{visitBanner}</span>
+                <button onClick={() => setVisitBanner(null)} aria-label="닫기" className="shrink-0 text-muted">
+                  ✕
+                </button>
+              </div>
+            )}
 
             <div className="mb-4 rounded-lg bg-surface p-3">
               <p className="mb-2 text-xs font-medium text-steel">함께 보는 사람</p>
@@ -1089,6 +1307,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               </div>
             </div>
 
+            {contributionSummary() && (
+              <p className="mb-3 text-xs text-steel">{contributionSummary()}</p>
+            )}
+
             <div className="flex-1 overflow-y-auto">
               {drawerLoading ? (
                 <p className="text-sm text-steel">불러오는 중...</p>
@@ -1096,9 +1318,22 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 <EmptyState text="이 서랍이 비었어요." />
               ) : (
                 <div className="flex flex-col gap-2">
-                  {drawerMemos.map((m) => (
-                    <div key={m.id} className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4">
-                      <div>
+                  {drawerMemos.map((m) => {
+                    const author = selectedDrawer.memberCount > 1 ? authorLabel(m.user_id) : null;
+                    const reactions = drawerReactions.get(m.id) ?? [];
+                    return (
+                    <div
+                      key={m.id}
+                      className="relative flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4"
+                      onPointerDown={selectedDrawer.memberCount > 1 ? () => handleMemoPressStart(m.id) : undefined}
+                      onPointerUp={handleMemoPressEnd}
+                      onPointerLeave={handleMemoPressEnd}
+                      onPointerCancel={handleMemoPressEnd}
+                    >
+                      {author && (
+                        <span className="absolute right-4 top-2 text-xs text-muted">{author}</span>
+                      )}
+                      <div className="min-w-0">
                         <CategorySelect
                           memo={m}
                           drawers={drawers}
@@ -1117,6 +1352,25 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                             {m.content}
                           </p>
                         )}
+                        {reactions.length > 0 && (
+                          <p className="mt-1.5 text-xs">
+                            {reactions.map((r) => r.emoji).join(" ")}
+                          </p>
+                        )}
+                        {reactionPickerFor === m.id && (
+                          <div className="mt-1.5 flex gap-1.5 rounded-full bg-surface px-2 py-1">
+                            {["👀", "😂", "❤️"].map((emoji) => (
+                              <button
+                                key={emoji}
+                                onClick={() => pickReaction(m.id, emoji)}
+                                className="text-base leading-none"
+                                aria-label={`${emoji} 반응`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <button
                         aria-label="메모 삭제"
@@ -1126,7 +1380,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                         삭제
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1278,13 +1533,19 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-ink">서랍</h2>
-          <button
-            onClick={checkMergeSuggestions}
-            disabled={mergeChecking || drawers.length < 2}
-            className="text-xs text-steel underline disabled:text-muted disabled:no-underline"
-          >
-            {mergeChecking ? "확인 중..." : "🧹 비슷한 서랍 정리"}
-          </button>
+          {drawersJiggling ? (
+            <button onClick={() => setDrawersJiggling(false)} className="text-xs font-semibold text-primary">
+              완료
+            </button>
+          ) : (
+            <button
+              onClick={checkMergeSuggestions}
+              disabled={mergeChecking || drawers.length < 2}
+              className="text-xs text-steel underline disabled:text-muted disabled:no-underline"
+            >
+              {mergeChecking ? "확인 중..." : "🧹 비슷한 서랍 정리"}
+            </button>
+          )}
         </div>
 
         {mergeSuggestions && (
@@ -1319,21 +1580,53 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           <EmptyState text="아직 만들어진 서랍이 없어요. 메모를 저장하면 자동으로 생겨요." />
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {drawers.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => openDrawer(d)}
-                className="rounded-lg p-4 text-left transition-transform hover:-translate-y-0.5"
-                style={{ backgroundColor: colorFor(d.name).bg, color: colorFor(d.name).text }}
-              >
-                <div className="font-heading text-base font-bold">
-                  {d.name}
-                  {d.memberCount > 1 && <span className="ml-1 text-xs opacity-70">👥{d.memberCount}</span>}
+            {drawers.map((d) => {
+              const threshold = Math.floor(d.count / 10) * 10;
+              const showBubble = threshold >= 10 && (dismissedDrawerThresholds[d.id] ?? 0) < threshold;
+              return (
+                <div key={d.id} className={showBubble ? "col-span-2 sm:col-span-3" : "contents"}>
+                  <button
+                    onClick={() => handleDrawerClick(d)}
+                    onPointerDown={handleDrawerPressStart}
+                    onPointerUp={handleDrawerPressEnd}
+                    onPointerLeave={handleDrawerPressEnd}
+                    onPointerCancel={handleDrawerPressEnd}
+                    className={`w-full rounded-lg p-4 text-left transition-transform hover:-translate-y-0.5 ${
+                      drawersJiggling ? "drawer-jiggle" : ""
+                    }`}
+                    style={{
+                      backgroundColor: colorFor(d.name).bg,
+                      color: colorFor(d.name).text,
+                      animationDelay: drawersJiggling ? `${(d.id.charCodeAt(0) % 5) * 40}ms` : undefined,
+                    }}
+                  >
+                    <div className="font-heading text-base font-bold">
+                      {d.name}
+                      {d.memberCount > 1 && <span className="ml-1 text-xs opacity-70">👥{d.memberCount}</span>}
+                    </div>
+                    <div className="text-xs opacity-70">{d.count}개</div>
+                    {d.preview && <div className="mt-1 truncate text-xs opacity-70">{d.preview}</div>}
+                    {d.lastAuthorEmail && (
+                      <div className="mt-0.5 truncate text-xs opacity-70">최근엔 {d.lastAuthorEmail}가 다녀감</div>
+                    )}
+                  </button>
+                  {showBubble && (
+                    <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-surface px-3 py-2 text-xs text-steel">
+                      <span className="flex-1">
+                        &apos;{d.name}&apos; 서랍이 벌써 {d.count}개나... 괜찮아?
+                      </span>
+                      <button
+                        onClick={() => dismissDrawerThreshold(d.id, threshold)}
+                        aria-label="닫기"
+                        className="shrink-0 text-muted"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="text-xs opacity-70">{d.count}개</div>
-                {d.preview && <div className="mt-1 truncate text-xs opacity-70">{d.preview}</div>}
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -1436,7 +1729,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               </div>
             )}
             <ResultGroup
-              title={`확실한 결과 (${certain.length})`}
+              title={
+                certain.length === 1 && maybe.length === 0
+                  ? "오, 이거 하나뿐이네"
+                  : `확실한 결과 (${certain.length})`
+              }
               memos={certain}
               drawers={drawers}
               onCategoryChange={handleCategoryChange}
@@ -1446,7 +1743,11 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               onToggleExpand={toggleExpand}
             />
             <ResultGroup
-              title={`혹시 이것도? (${maybe.length})`}
+              title={
+                maybe.length === 1 && certain.length === 0
+                  ? "오, 이거 하나뿐이네"
+                  : `혹시 이것도? (${maybe.length})`
+              }
               memos={maybe}
               drawers={drawers}
               onCategoryChange={handleCategoryChange}
