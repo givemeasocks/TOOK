@@ -579,6 +579,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     }
     setDrawerLoading(false);
     await loadMembers(drawer.id);
+    if (drawer.memberCount > 1) await loadReactions(drawer.id);
   }
 
   function closeDrawer() {
@@ -587,6 +588,52 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     setDrawerMembers([]);
     setInviteEmail("");
     setVisitBanner(null);
+    setDrawerReactions(new Map());
+    setReactionPickerFor(null);
+  }
+
+  // 13번: 공동 서랍 메모 카드 롱프레스 → 이모지 1개(👀 😂 ❤️) 반응. 텍스트 댓글 아님, 사람당 1개.
+  const [drawerReactions, setDrawerReactions] = useState<Map<string, { userId: string; emoji: string }[]>>(new Map());
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
+  const reactionPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function loadReactions(drawerId: string) {
+    const res = await fetch(`/api/drawers/${drawerId}/reactions`);
+    if (!res.ok) return;
+    const { reactions } = (await res.json()) as { reactions: { memoId: string; userId: string; emoji: string }[] };
+    const byMemo = new Map<string, { userId: string; emoji: string }[]>();
+    for (const r of reactions) {
+      if (!byMemo.has(r.memoId)) byMemo.set(r.memoId, []);
+      byMemo.get(r.memoId)!.push({ userId: r.userId, emoji: r.emoji });
+    }
+    setDrawerReactions(byMemo);
+  }
+
+  function handleMemoPressStart(memoId: string) {
+    reactionPressTimerRef.current = setTimeout(() => setReactionPickerFor(memoId), 500);
+  }
+  function handleMemoPressEnd() {
+    if (reactionPressTimerRef.current) {
+      clearTimeout(reactionPressTimerRef.current);
+      reactionPressTimerRef.current = null;
+    }
+  }
+
+  async function pickReaction(memoId: string, emoji: string) {
+    setReactionPickerFor(null);
+    if (!selectedDrawer) return;
+    const myUserId = drawerMembers.find((m) => m.invited_email.toLowerCase() === userEmail.toLowerCase())?.user_id;
+    const mine = (drawerReactions.get(memoId) ?? []).find((r) => r.userId === myUserId);
+    if (mine && mine.emoji === emoji) {
+      await fetch(`/api/memos/${memoId}/reactions`, { method: "DELETE" });
+    } else {
+      await fetch(`/api/memos/${memoId}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji }),
+      });
+    }
+    await loadReactions(selectedDrawer.id);
   }
 
   async function handleCategoryChange(memo: Memo, newCategory: string) {
@@ -1104,12 +1151,20 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 <div className="flex flex-col gap-2">
                   {drawerMemos.map((m) => {
                     const author = selectedDrawer.memberCount > 1 ? authorLabel(m.user_id) : null;
+                    const reactions = drawerReactions.get(m.id) ?? [];
                     return (
-                    <div key={m.id} className="relative flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4">
+                    <div
+                      key={m.id}
+                      className="relative flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4"
+                      onPointerDown={selectedDrawer.memberCount > 1 ? () => handleMemoPressStart(m.id) : undefined}
+                      onPointerUp={handleMemoPressEnd}
+                      onPointerLeave={handleMemoPressEnd}
+                      onPointerCancel={handleMemoPressEnd}
+                    >
                       {author && (
                         <span className="absolute right-4 top-2 text-xs text-muted">{author}</span>
                       )}
-                      <div>
+                      <div className="min-w-0">
                         <CategorySelect
                           memo={m}
                           drawers={drawers}
@@ -1127,6 +1182,25 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                           <p className="mt-2 whitespace-pre-line border-t border-hairline pt-2 text-sm text-steel">
                             {m.content}
                           </p>
+                        )}
+                        {reactions.length > 0 && (
+                          <p className="mt-1.5 text-xs">
+                            {reactions.map((r) => r.emoji).join(" ")}
+                          </p>
+                        )}
+                        {reactionPickerFor === m.id && (
+                          <div className="mt-1.5 flex gap-1.5 rounded-full bg-surface px-2 py-1">
+                            {["👀", "😂", "❤️"].map((emoji) => (
+                              <button
+                                key={emoji}
+                                onClick={() => pickReaction(m.id, emoji)}
+                                className="text-base leading-none"
+                                aria-label={`${emoji} 반응`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </div>
                       <button
