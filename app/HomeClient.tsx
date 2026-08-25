@@ -25,6 +25,8 @@ type Drawer = {
   count: number;
   memberCount: number;
   preview: string | null;
+  createdAt: string;
+  lastAuthorEmail: string | null;
 };
 
 type DrawerMember = {
@@ -53,6 +55,14 @@ const HASH_CATEGORY_PALETTE = [
   { bg: "#DCC3B8", text: "#5c4030" },
   { bg: "#D3C6A6", text: "#4a4234" },
 ];
+
+// 공동 서랍 상세의 "같이 채운 지 N일째" 문구용 (item 12). 만든 날 자체를 1일째로 센다.
+function daysSince(isoDate: string): number {
+  const created = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.setHours(0, 0, 0, 0) - created.setHours(0, 0, 0, 0);
+  return Math.floor(diffMs / (24 * 60 * 60 * 1000)) + 1;
+}
 
 function colorFor(category: string): { bg: string; text: string } {
   if (FIXED_CATEGORY_COLORS[category]) return FIXED_CATEGORY_COLORS[category];
@@ -996,7 +1006,12 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-2">
-              <h3 className="font-heading text-xl font-bold text-ink">{selectedDrawer.name}</h3>
+              <div>
+                <h3 className="font-heading text-xl font-bold text-ink">{selectedDrawer.name}</h3>
+                {selectedDrawer.memberCount > 1 && (
+                  <p className="text-xs text-steel">같이 채운 지 {daysSince(selectedDrawer.createdAt)}일째</p>
+                )}
+              </div>
               <div className="flex shrink-0 items-center gap-3">
                 <button onClick={() => renameDrawer(selectedDrawer)} className="text-xs text-steel underline">
                   이름 바꾸기
@@ -1297,6 +1312,9 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                     </div>
                     <div className="text-xs opacity-70">{d.count}개</div>
                     {d.preview && <div className="mt-1 truncate text-xs opacity-70">{d.preview}</div>}
+                    {d.lastAuthorEmail && (
+                      <div className="mt-0.5 truncate text-xs opacity-70">최근엔 {d.lastAuthorEmail}가 다녀감</div>
+                    )}
                   </button>
                   {showBubble && (
                     <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-surface px-3 py-2 text-xs text-steel">
