@@ -17,6 +17,7 @@ type Memo = {
   category: string;
   category_edited?: boolean;
   similarity?: number;
+  user_id?: string | null;
 };
 
 type Drawer = {
@@ -469,6 +470,26 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     if (!res.ok) return;
     const { members } = await res.json();
     setDrawerMembers(members);
+  }
+
+  // 작성자 표기(6번)/기여 카운트(8번)에 같이 쓴다 — "나"는 내 이메일과 일치하는 멤버로 판단.
+  function authorLabel(userId: string | null | undefined): string | null {
+    if (!userId) return null;
+    const member = drawerMembers.find((m) => m.user_id === userId);
+    if (!member) return null;
+    return member.invited_email.toLowerCase() === userEmail.toLowerCase() ? "나" : member.invited_email;
+  }
+
+  function contributionSummary(): string | null {
+    if (!selectedDrawer || selectedDrawer.memberCount <= 1) return null;
+    const counts = new Map<string, number>();
+    for (const m of drawerMemos) {
+      const label = authorLabel(m.user_id) ?? "알 수 없음";
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    if (counts.size === 0) return null;
+    const entries = Array.from(counts.entries()).sort((a, b) => (a[0] === "나" ? -1 : b[0] === "나" ? 1 : b[1] - a[1]));
+    return entries.map(([label, count]) => `${label} ${count}`).join(" · ");
   }
 
   async function handleInvite() {
@@ -1058,6 +1079,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               </div>
             </div>
 
+            {contributionSummary() && (
+              <p className="mb-3 text-xs text-steel">{contributionSummary()}</p>
+            )}
+
             <div className="flex-1 overflow-y-auto">
               {drawerLoading ? (
                 <p className="text-sm text-steel">불러오는 중...</p>
@@ -1065,8 +1090,13 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 <EmptyState text="이 서랍이 비었어요." />
               ) : (
                 <div className="flex flex-col gap-2">
-                  {drawerMemos.map((m) => (
-                    <div key={m.id} className="flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4">
+                  {drawerMemos.map((m) => {
+                    const author = selectedDrawer.memberCount > 1 ? authorLabel(m.user_id) : null;
+                    return (
+                    <div key={m.id} className="relative flex items-start justify-between gap-3 rounded-lg border border-hairline bg-canvas p-4">
+                      {author && (
+                        <span className="absolute right-4 top-2 text-xs text-muted">{author}</span>
+                      )}
                       <div>
                         <CategorySelect
                           memo={m}
@@ -1095,7 +1125,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                         삭제
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
