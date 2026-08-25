@@ -81,6 +81,21 @@ export async function memberEmailsByDrawer(supabase: SupabaseClient, drawerIds: 
   return byDrawer;
 }
 
+/** 주어진 user_id들의 닉네임을 (user_id → nickname) 맵으로 돌려준다. 프로필이 아직 없으면 그 user_id는 맵에서 빠짐. */
+export async function nicknamesByUserId(supabase: SupabaseClient, userIds: string[]) {
+  const map = new Map<string, string>();
+  const uniqueIds = [...new Set(userIds)];
+  if (uniqueIds.length === 0) return map;
+
+  const { data, error } = await supabase.from("profiles").select("user_id, nickname").in("user_id", uniqueIds);
+  if (error) throw new Error(error.message);
+
+  for (const row of (data ?? []) as { user_id: string; nickname: string }[]) {
+    map.set(row.user_id, row.nickname);
+  }
+  return map;
+}
+
 /** 주어진 서랍 id들의 가장 최근 메모 작성자(user_id)와 생성 시각을 맵으로 돌려준다. */
 export async function latestMemoAuthors(supabase: SupabaseClient, drawerIds: string[]) {
   const latest = new Map<string, { userId: string | null; createdAt: string }>();

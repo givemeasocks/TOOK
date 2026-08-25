@@ -7,6 +7,7 @@ import {
   latestMemoPreviews,
   listMemberDrawers,
   memberEmailsByDrawer,
+  nicknamesByUserId,
 } from "@/lib/drawers";
 
 export async function GET() {
@@ -21,15 +22,17 @@ export async function GET() {
     latestMemoAuthors(supabase, ids),
     memberEmailsByDrawer(supabase, ids),
   ]);
+  const otherAuthorIds = [...latestAuthors.values()].map((v) => v.userId).filter((id): id is string => !!id);
+  const nicknames = await nicknamesByUserId(supabase, otherAuthorIds);
 
   const drawers = memberDrawers
     .map((d) => {
       const memberCount = memberCounts.get(d.id) ?? 1;
       const latest = latestAuthors.get(d.id);
       // 개인 서랍(멤버 1명)에선 "내가 마지막으로 넣음"이 당연해서 표시할 필요 없음 — 공동 서랍에서만 의미 있음.
-      const lastAuthorEmail =
+      const lastAuthorName =
         memberCount > 1 && latest?.userId && latest.userId !== user.id
-          ? (emailsByDrawer.get(d.id)?.get(latest.userId) ?? null)
+          ? (nicknames.get(latest.userId) ?? emailsByDrawer.get(d.id)?.get(latest.userId) ?? null)
           : null;
       return {
         id: d.id,
@@ -38,7 +41,7 @@ export async function GET() {
         memberCount,
         preview: previews.get(d.id) ?? null,
         createdAt: d.createdAt,
-        lastAuthorEmail,
+        lastAuthorName,
       };
     })
     .sort((a, b) => b.count - a.count);

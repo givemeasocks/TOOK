@@ -9,6 +9,7 @@ export default function LoginForm() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [nickname, setNickname] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signedUp, setSignedUp] = useState(false);
@@ -33,7 +34,10 @@ export default function LoginForm() {
           return;
         }
         // 이메일 확인이 꺼져있으면 가입과 동시에 세션이 생김 — 바로 들어가면 됨
-        if (data.session) {
+        if (data.session && data.user) {
+          // 닉네임을 안 적으면 이메일 앞부분을 기본값으로 씀 (공동 서랍에서 다른 사람에게 이 이름으로 보임)
+          const nick = nickname.trim() || email.trim().split("@")[0];
+          await supabase.from("profiles").upsert({ user_id: data.user.id, nickname: nick });
           router.refresh();
         } else {
           setSignedUp(true);
@@ -74,6 +78,16 @@ export default function LoginForm() {
             placeholder="비밀번호"
             className="h-11 w-full rounded-md border border-hairline-strong bg-canvas px-4 text-base text-ink outline-none focus:border-2 focus:border-primary"
           />
+          {mode === "signup" && (
+            <input
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              placeholder="닉네임 (안 적으면 이메일 앞부분으로 자동 설정)"
+              className="h-11 w-full rounded-md border border-hairline-strong bg-canvas px-4 text-base text-ink outline-none focus:border-2 focus:border-primary"
+            />
+          )}
           <button
             onClick={handleSubmit}
             disabled={busy || !email.trim() || !password}

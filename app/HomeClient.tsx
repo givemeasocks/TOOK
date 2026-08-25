@@ -27,12 +27,13 @@ type Drawer = {
   memberCount: number;
   preview: string | null;
   createdAt: string;
-  lastAuthorEmail: string | null;
+  lastAuthorName: string | null;
 };
 
 type DrawerMember = {
   id: string;
   invited_email: string;
+  nickname: string | null;
   status: "pending" | "accepted";
   user_id: string | null;
 };
@@ -122,10 +123,13 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-export default function HomeClient({ userEmail }: { userEmail: string }) {
+export default function HomeClient({ userEmail, userNickname }: { userEmail: string; userNickname: string }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("input");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [nickname, setNickname] = useState(userNickname);
+  const [nicknameInput, setNicknameInput] = useState(userNickname);
+  const [savingNickname, setSavingNickname] = useState(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [dialogInput, setDialogInput] = useState("");
   const dialogResolveRef = useRef<((value: string | null) => void) | null>(null);
@@ -626,7 +630,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     if (!userId) return null;
     const member = drawerMembers.find((m) => m.user_id === userId);
     if (!member) return null;
-    return member.invited_email.toLowerCase() === userEmail.toLowerCase() ? "나" : member.invited_email;
+    return member.invited_email.toLowerCase() === userEmail.toLowerCase() ? "나" : (member.nickname ?? member.invited_email);
   }
 
   function contributionSummary(): string | null {
@@ -1282,7 +1286,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {drawerMembers.map((m) => (
                   <span key={m.id} className="rounded-full bg-canvas px-2 py-0.5 text-xs text-ink">
-                    {m.invited_email}
+                    {m.nickname ?? m.invited_email}
                     {m.status === "pending" && " (초대중)"}
                   </span>
                 ))}
@@ -1416,6 +1420,38 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
               onMouseLeave={() => setAccountMenuOpen(false)}
             >
               <span className="text-muted">{userEmail}</span>
+              <div className="flex w-40 flex-col items-stretch gap-1">
+                <span className="text-left text-steel">닉네임 (다른 사람에게 이렇게 보여요)</span>
+                <div className="flex gap-1">
+                  <input
+                    value={nicknameInput}
+                    onChange={(e) => setNicknameInput(e.target.value)}
+                    className="h-7 min-w-0 flex-1 rounded border border-hairline-strong bg-canvas px-1.5 text-xs text-ink outline-none focus:border-primary"
+                  />
+                  <button
+                    disabled={savingNickname || !nicknameInput.trim() || nicknameInput.trim() === nickname}
+                    onClick={async () => {
+                      const next = nicknameInput.trim();
+                      if (!next) return;
+                      setSavingNickname(true);
+                      try {
+                        const supabase = getSupabaseBrowser();
+                        const {
+                          data: { user },
+                        } = await supabase.auth.getUser();
+                        if (!user) return;
+                        const { error } = await supabase.from("profiles").update({ nickname: next }).eq("user_id", user.id);
+                        if (!error) setNickname(next);
+                      } finally {
+                        setSavingNickname(false);
+                      }
+                    }}
+                    className="shrink-0 rounded bg-primary px-2 text-xs text-on-primary disabled:bg-hairline disabled:text-muted"
+                  >
+                    저장
+                  </button>
+                </div>
+              </div>
               <label className="flex items-center gap-1.5 text-steel">
                 <input
                   type="checkbox"
@@ -1606,8 +1642,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                     </div>
                     <div className="text-xs opacity-70">{d.count}개</div>
                     {d.preview && <div className="mt-1 truncate text-xs opacity-70">{d.preview}</div>}
-                    {d.lastAuthorEmail && (
-                      <div className="mt-0.5 truncate text-xs opacity-70">최근엔 {d.lastAuthorEmail}가 다녀감</div>
+                    {d.lastAuthorName && (
+                      <div className="mt-0.5 truncate text-xs opacity-70">최근엔 {d.lastAuthorName}가 다녀감</div>
                     )}
                   </button>
                   {showBubble && (

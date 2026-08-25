@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
 import type { DrawerMemberRow } from "@/lib/supabase/types";
+import { nicknamesByUserId } from "@/lib/drawers";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await requireUser();
@@ -19,9 +20,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // 가입 전(pending) 멤버는 아직 닉네임이 없으니 이메일 그대로 두고, 가입된 멤버만 닉네임을 붙인다.
+  const nicknames = await nicknamesByUserId(
+    supabase,
+    (data ?? []).map((m) => m.user_id).filter((id): id is string => !!id)
+  );
+  const members = (data ?? []).map((m) => ({ ...m, nickname: m.user_id ? (nicknames.get(m.user_id) ?? null) : null }));
+
   // 7번: "OO가 방금 하나 넣고 갔어" — 내가 마지막으로 방문한 시각 이후 다른 멤버가 넣은 메모가 있으면 배너.
   // 배너를 계산한 뒤에 방문 시각을 지금으로 갱신한다(같은 배너가 다음 방문에도 또 뜨지 않게).
-  const myRow = (data ?? []).find((m) => m.user_id === user.id);
+  const myRow = members.find((m) => m.user_id === user.id);
   let visitBanner: string | null = null;
   if (myRow) {
     const { data: latestMemo } = await supabase
@@ -37,13 +45,13 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       latestMemo.user_id !== user.id &&
       (!myRow.last_visited_at || latestMemo.created_at > myRow.last_visited_at)
     ) {
-      const author = (data ?? []).find((m) => m.user_id === latestMemo.user_id);
-      if (author) visitBanner = `${author.invited_email}가 방금 하나 넣고 갔어`;
+      const author = members.find((m) => m.user_id === latestMemo.user_id);
+      if (author) visitBanner = `${author.nickname ?? author.invited_email}가 방금 하나 넣고 갔어`;
     }
     await supabase.from("drawer_members").update({ last_visited_at: new Date().toISOString() }).eq("id", myRow.id);
   }
 
-  return NextResponse.json({ members: data, visitBanner });
+  return NextResponse.json({ members, visitBanner });
 }
 
 /** 서랍에서 나가거나(본인) 다른 멤버를 내보낸다 — 동등한 권한이라 누구든 할 수 있음. */
