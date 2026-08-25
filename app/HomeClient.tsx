@@ -213,12 +213,16 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   // 메모 특성에 따라 저장 리액션을 다르게 보여준다: 아주 짧은 메모는 한입에 삼키고, 새벽엔 졸린 표정.
   const QUICK_BITE_FRAMES = ["/character/horse-save-bite.svg", "/character/horse-bite-after.svg"];
   const SLEEPY_FRAMES = ["/character/horse-sleeping.svg"];
+  const BURST_FRAMES = ["/character/horse-bursting.svg"];
   const [biteFrame, setBiteFrame] = useState(0);
   const [biting, setBiting] = useState(false);
   const [saveReactionFrames, setSaveReactionFrames] = useState<string[]>(BITE_FRAMES);
+  // 5분 내 5개 이상 몰아서 저장하는 "과식" 케이스를 감지하기 위한 최근 저장 시각들 (세션 내 클라이언트 추적)
+  const saveTimestampsRef = useRef<number[]>([]);
 
-  function playBiteAnimation(kind: "default" | "quick" | "sleepy" = "default") {
-    const frames = kind === "quick" ? QUICK_BITE_FRAMES : kind === "sleepy" ? SLEEPY_FRAMES : BITE_FRAMES;
+  function playBiteAnimation(kind: "default" | "quick" | "sleepy" | "burst" = "default") {
+    const frames =
+      kind === "quick" ? QUICK_BITE_FRAMES : kind === "sleepy" ? SLEEPY_FRAMES : kind === "burst" ? BURST_FRAMES : BITE_FRAMES;
     setSaveReactionFrames(frames);
     setBiting(true);
     setBiteFrame(0);
@@ -233,14 +237,18 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   }
 
   // 저장 확정 순간의 반응 문구를 메모 특성별로 고른다 (DESIGN_took.md 5.4: "옆에서 도와주는 누군가"의 톤).
-  function pickSaveReaction(contentLength: number, primaryCategory: string | undefined): {
-    kind: "default" | "quick" | "sleepy";
+  // 우선순위: 새벽 졸림(신체 상태) > 과식(행동 패턴, 눈에 띄는 이스터에그) > 반복 카테고리 > 짧은 메모 > 기본
+  function pickSaveReaction(contentLength: number, primaryCategory: string | undefined, isBurst: boolean): {
+    kind: "default" | "quick" | "sleepy" | "burst";
     text: (movedCount: number) => string;
   } {
     const hour = new Date().getHours();
     const suffix = (movedCount: number) => (movedCount > 0 ? ` (+${movedCount}개 같이 옮김)` : "");
     if (hour >= 0 && hour < 5) {
       return { kind: "sleepy", text: (m) => `졸린데도 잘 받아 적었어요...${suffix(m)}` };
+    }
+    if (isBurst) {
+      return { kind: "burst", text: (m) => `잠깐, 나 배 터질 것 같아...${suffix(m)}` };
     }
     const lastTwo = recentMemos.slice(0, 2);
     if (
@@ -475,7 +483,10 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     if (!pendingDraft || confirmingRef.current) return;
     confirmingRef.current = true;
     setConfirming(true);
-    const reaction = pickSaveReaction(pendingDraft.contentLength, categories[0]);
+    const now = Date.now();
+    saveTimestampsRef.current = [...saveTimestampsRef.current, now].filter((t) => now - t < 5 * 60 * 1000);
+    const isBurst = saveTimestampsRef.current.length >= 5;
+    const reaction = pickSaveReaction(pendingDraft.contentLength, categories[0], isBurst);
     const isNewDrawer = categories.some((c) => !pendingDraft.existingCategories.includes(c));
     try {
       const res = await fetch("/api/memos/confirm", {
