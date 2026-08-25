@@ -572,7 +572,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       if (
         !(await askCharacterConfirm(
           `어... 진짜 없앨 거야? 나 이거 좋아했는데.\n메모 ${count}개가 전부 사라져요, 되돌릴 수 없어요.`,
-          "/character/horse-tilt-head.svg"
+          "/character/horse-confused.svg"
         ))
       )
         return;
