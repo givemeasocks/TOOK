@@ -464,12 +464,14 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   const [drawerMembers, setDrawerMembers] = useState<DrawerMember[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
+  const [visitBanner, setVisitBanner] = useState<string | null>(null);
 
   async function loadMembers(drawerId: string) {
     const res = await fetch(`/api/drawers/${drawerId}/members`);
     if (!res.ok) return;
-    const { members } = await res.json();
+    const { members, visitBanner } = await res.json();
     setDrawerMembers(members);
+    setVisitBanner(visitBanner ?? null);
   }
 
   // 작성자 표기(6번)/기여 카운트(8번)에 같이 쓴다 — "나"는 내 이메일과 일치하는 멤버로 판단.
@@ -584,6 +586,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     setDrawerMemos([]);
     setDrawerMembers([]);
     setInviteEmail("");
+    setVisitBanner(null);
   }
 
   async function handleCategoryChange(memo: Memo, newCategory: string) {
@@ -1048,6 +1051,15 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
                 </button>
               </div>
             </div>
+
+            {visitBanner && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg bg-surface px-3 py-2 text-xs text-steel">
+                <span className="flex-1">{visitBanner}</span>
+                <button onClick={() => setVisitBanner(null)} aria-label="닫기" className="shrink-0 text-muted">
+                  ✕
+                </button>
+              </div>
+            )}
 
             <div className="mb-4 rounded-lg bg-surface p-3">
               <p className="mb-2 text-xs font-medium text-steel">함께 보는 사람</p>
