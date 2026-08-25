@@ -55,15 +55,36 @@ export async function POST(request: NextRequest) {
   }
 
   let movedCount = 0;
+  const primaryDrawerId = await findOrCreateDrawerId(supabase, user.id, user.email ?? "", finalCategories[0]);
   if (Array.isArray(alsoMoveIds) && alsoMoveIds.length > 0) {
-    const targetDrawerId = await findOrCreateDrawerId(supabase, user.id, user.email ?? "", finalCategories[0]);
     const { data: moved, error: moveError } = await supabase
       .from("memos")
-      .update({ drawer_id: targetDrawerId, category_edited: true })
+      .update({ drawer_id: primaryDrawerId, category_edited: true })
       .in("id", alsoMoveIds)
       .select("id");
     if (!moveError) movedCount = moved?.length ?? 0;
   }
 
-  return NextResponse.json({ memos: created, movedCount });
+  // 9/10번: 저장 리액션을 공동 서랍 여부에 따라 다르게 고르기 위한 정보.
+  // shared = 이 서랍 멤버가 2명 이상, telepathy = 최근 24시간 안에 나 아닌 다른 멤버도 저장했음.
+  const { count: memberCount } = await supabase
+    .from("drawer_members")
+    .select("id", { count: "exact", head: true })
+    .eq("drawer_id", primaryDrawerId)
+    .eq("status", "accepted");
+  const shared = (memberCount ?? 1) > 1;
+  let telepathy = false;
+  if (shared) {
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentOthers } = await supabase
+      .from("memos")
+      .select("id")
+      .eq("drawer_id", primaryDrawerId)
+      .neq("user_id", user.id)
+      .gte("created_at", dayAgo)
+      .limit(1);
+    telepathy = (recentOthers?.length ?? 0) > 0;
+  }
+
+  return NextResponse.json({ memos: created, movedCount, collab: { shared, telepathy } });
 }

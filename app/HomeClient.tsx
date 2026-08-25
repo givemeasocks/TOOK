@@ -156,14 +156,27 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
     setTimeout(() => setToast(null), 2000);
   }
 
-  // 저장 순간 모션 (DESIGN_took.md 2.3/5.1): 다가감 → 무는 중 → 다 먹음, 3프레임을 1초 내외로 전환
+  // 저장 순간 모션 (DESIGN_took.md 2.3/5.1): 다가감 → 무는 중 → 다 먹음, 3프레임을 1초 내외로 전환.
+  // 공동 서랍 저장은 다른 반응(하이파이브/어깨동무 단일 프레임)을 쓴다 — collab 저장 리액션(9/10번).
   const BITE_FRAMES = ["/character/horse-bite-before.svg", "/character/horse-save-bite.svg", "/character/horse-bite-after.svg"];
   const [biteFrame, setBiteFrame] = useState(0);
   const [biting, setBiting] = useState(false);
+  const [saveReactionFrames, setSaveReactionFrames] = useState<string[]>(BITE_FRAMES);
 
-  function playBiteAnimation() {
+  function playBiteAnimation(kind: "default" | "shared" | "telepathy" = "default") {
+    const frames =
+      kind === "shared"
+        ? ["/character/horse-high-five.svg"]
+        : kind === "telepathy"
+          ? ["/character/horse-shoulder-hug.svg"]
+          : BITE_FRAMES;
+    setSaveReactionFrames(frames);
     setBiting(true);
     setBiteFrame(0);
+    if (frames.length === 1) {
+      setTimeout(() => setBiting(false), 1000);
+      return;
+    }
     setTimeout(() => setBiteFrame(1), 300);
     setTimeout(() => setBiteFrame(2), 650);
     setTimeout(() => setBiting(false), 1000);
@@ -417,9 +430,15 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         showToast(`이번엔 못 먹었어요. 다시 한 번 시도해볼까요? (${error})`, "error");
         return;
       }
-      const { movedCount } = await res.json();
-      playBiteAnimation();
-      showToast(movedCount > 0 ? `툭! (+${movedCount}개 같이 옮김)` : "툭!", "success");
+      const { movedCount, collab } = await res.json();
+      const reactionKind = collab?.telepathy ? "telepathy" : collab?.shared ? "shared" : "default";
+      playBiteAnimation(reactionKind);
+      const reactionText = collab?.telepathy
+        ? "오, 둘이 텔레파시 통했나 봐"
+        : movedCount > 0
+          ? `툭! (+${movedCount}개 같이 옮김)`
+          : "툭!";
+      showToast(reactionText, "success");
       await loadDrawers();
       await loadRecentMemos();
     } finally {
@@ -689,7 +708,7 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
       {biting && toast && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BITE_FRAMES[biteFrame]} alt="" className="h-64 w-64 max-w-[70vw]" />
+          <img src={saveReactionFrames[Math.min(biteFrame, saveReactionFrames.length - 1)]} alt="" className="h-64 w-64 max-w-[70vw]" />
           <p className="text-lg font-semibold text-ink">{toast.text}</p>
         </div>
       )}
