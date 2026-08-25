@@ -19,7 +19,10 @@ export default function ReminderOptIn() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    // 카카오톡 인앱 브라우저 등 일부 iOS WebView는 serviceWorker/PushManager는 있어도
+    // Notification 전역 자체가 없어서, 아래에서 바로 Notification.permission을 읽으면
+    // ReferenceError로 렌더링 전체가 죽는다(에러 바운더리가 없어 흰 화면으로 보임) — 반드시 먼저 체크.
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
     setSupported(true);
     setDenied(Notification.permission === "denied");
 
