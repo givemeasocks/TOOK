@@ -8,14 +8,12 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener("fetch", (event) => {
-  // 페이지 이동(문서 요청) 자체를 가로채면 일부 iOS WebView(홈화면에 추가한 standalone 실행,
-  // 카카오톡 인앱 브라우저 등)에서 응답이 영영 안 끝나는 흰 화면 멈춤이 보고된 적 있다 — 알려진
-  // iOS WebKit 버그 패턴. 이 서비스워커는 애초에 캐싱을 안 해서(설치 조건 충족용) 가로챌 이유가
-  // 없으므로, navigate 요청은 그냥 건드리지 않고 브라우저가 직접 처리하게 둔다.
-  if (event.request.mode === "navigate") return;
-  event.respondWith(fetch(event.request));
-});
+// respondWith를 아예 안 부른다 — iOS Safari는 서비스워커가 respondWith(fetch(...))로 요청을
+// 가로채면 교차 출처(예: 로그인 시 Supabase로 보내는 POST) 요청이 "Load failed"로 실패하거나,
+// standalone/카카오톡 인앱 브라우저 같은 특수 웹뷰에서 페이지 이동 자체가 영영 안 끝나는 흰 화면
+// 버그가 알려져 있다. 이 서비스워커는 원래 캐싱을 안 해서(설치 조건 충족용) 가로챌 이유가 아예
+// 없으므로, 리스너만 등록해두고 모든 요청은 그냥 브라우저가 직접 처리하게 둔다.
+self.addEventListener("fetch", () => {});
 
 // PRD 7.6 리마인드: 서버(app/api/cron/reminders)가 보낸 push를 알림으로 띄운다.
 self.addEventListener("push", (event) => {
