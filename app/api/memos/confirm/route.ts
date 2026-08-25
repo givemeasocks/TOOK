@@ -26,6 +26,13 @@ export async function POST(request: NextRequest) {
   const useEventDate = typeof eventDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(eventDate) ? eventDate : null;
   const useRemindDayBefore = useEventDate !== null && remindDayBefore === true;
 
+  // 마일스톤(50/100/500개) 감지: 이번 저장 전 총 개수를 미리 알아둬서, 이번 저장으로 그 경계를
+  // 새로 넘겼는지(카테고리 2개짜리 저장이 한 번에 2개를 넘길 수도 있으므로 범위로) 판단한다.
+  const { count: priorCount } = await supabase
+    .from("memos")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
   // 카테고리 개수만큼 같은 내용의 메모를 각각 저장한다 (예: 감정 + 일기 둘 다 저장). 순서를 category와
   // 확실히 맞추려고 하나씩 insert한다 (많아야 2개라 성능 문제 없음).
   const created: { id: string; content: string; summary: string | null; category: string; source: string; created_at: string }[] = [];
@@ -65,5 +72,8 @@ export async function POST(request: NextRequest) {
     if (!moveError) movedCount = moved?.length ?? 0;
   }
 
-  return NextResponse.json({ memos: created, movedCount });
+  const newCount = (priorCount ?? 0) + created.length;
+  const milestoneReached = [50, 100, 500].find((m) => (priorCount ?? 0) < m && newCount >= m) ?? null;
+
+  return NextResponse.json({ memos: created, movedCount, milestoneReached });
 }

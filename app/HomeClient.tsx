@@ -219,6 +219,8 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
   const [saveReactionFrames, setSaveReactionFrames] = useState<string[]>(BITE_FRAMES);
   // 5분 내 5개 이상 몰아서 저장하는 "과식" 케이스를 감지하기 위한 최근 저장 시각들 (세션 내 클라이언트 추적)
   const saveTimestampsRef = useRef<number[]>([]);
+  // 전체 메모 개수가 50/100/500개를 새로 넘긴 순간의 축하 연출 (저장 리액션이 끝난 다음에 이어서 등장)
+  const [milestoneCelebration, setMilestoneCelebration] = useState<number | null>(null);
 
   function playBiteAnimation(kind: "default" | "quick" | "sleepy" | "burst" = "default") {
     const frames =
@@ -510,12 +512,20 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
         showToast(`이번엔 못 먹었어요. 다시 한 번 시도해볼까요? (${error})`, "error");
         return;
       }
-      const { movedCount } = await res.json();
+      const { movedCount, milestoneReached } = await res.json();
       playBiteAnimation(reaction.kind);
       showToast(reaction.text(movedCount), "success");
       // 새 서랍이 생기는 경우엔 평범한 저장보다 조금 더 뚜렷한 진동으로 구분해준다.
       vibrate(isNewDrawer ? [20, 30, 20] : 15);
       playTockSound();
+      if (milestoneReached) {
+        // 저장 리액션 애니메이션(quick=500ms, 그 외=1000ms)이 끝난 다음에 이어서 등장시킨다.
+        const reactionDuration = reaction.kind === "quick" ? 550 : 1050;
+        setTimeout(() => {
+          setMilestoneCelebration(milestoneReached);
+          setTimeout(() => setMilestoneCelebration(null), 1800);
+        }, reactionDuration);
+      }
       await loadDrawers();
       await loadRecentMemos();
     } finally {
@@ -734,6 +744,14 @@ export default function HomeClient({ userEmail }: { userEmail: string }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={saveReactionFrames[Math.min(biteFrame, saveReactionFrames.length - 1)]} alt="" className="h-64 w-64 max-w-[70vw]" />
           <p className="text-lg font-semibold text-ink">{toast.text}</p>
+        </div>
+      )}
+      {/* 전체 메모 개수가 50/100/500개를 새로 넘긴 순간의 축하 연출, 저장 리액션 다음에 이어서 등장 */}
+      {milestoneCelebration && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/character/horse-excited.svg" alt="" className="h-64 w-64 max-w-[70vw]" />
+          <p className="text-lg font-semibold text-ink">벌써 {milestoneCelebration}개나 모았어요!</p>
         </div>
       )}
 
