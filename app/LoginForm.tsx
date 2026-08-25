@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabase/browserClient";
 
@@ -12,6 +12,47 @@ export default function LoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signedUp, setSignedUp] = useState(false);
+  const [swInfo, setSwInfo] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  // 진단용: 이 페이지를 지금 서비스워커가 컨트롤하고 있는지, 등록된 서비스워커가 있는지 화면에 보여준다.
+  // 로그인 페이지는 InstallPrompt(로그인 후에만 렌더)가 없어서 서비스워커 등록/갱신 코드가 아예 안 도는데,
+  // 예전에 등록된 서비스워커가 남아있다면 그게 계속 이 페이지를 컨트롤하고 있을 수 있다 — 그게 원인인지
+  // 직접 확인하기 위함. 원인 확인되면 지울 것.
+  async function checkSwState() {
+    if (!("serviceWorker" in navigator)) {
+      setSwInfo("serviceWorker 미지원 브라우저");
+      return;
+    }
+    const regs = await navigator.serviceWorker.getRegistrations();
+    const controller = navigator.serviceWorker.controller;
+    setSwInfo(
+      `controller: ${controller ? controller.scriptURL : "없음"} / 등록된 SW ${regs.length}개` +
+        regs.map((r, i) => `\n  [${i}] active=${r.active?.scriptURL ?? "-"} waiting=${!!r.waiting} installing=${!!r.installing}`).join("")
+    );
+  }
+
+  useEffect(() => {
+    checkSwState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function resetServiceWorker() {
+    setResetting(true);
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      window.location.reload();
+    } finally {
+      setResetting(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!email.trim() || !password) return;
@@ -81,7 +122,14 @@ export default function LoginForm() {
           >
             {busy ? "처리 중..." : mode === "signin" ? "로그인" : "회원가입"}
           </button>
-          {error && <p className="text-xs text-error">{error}</p>}
+          {error && (
+            <div className="rounded-md bg-surface px-3 py-2 text-xs text-error">
+              <p>{error}</p>
+              <button onClick={resetServiceWorker} disabled={resetting} className="mt-1 underline">
+                {resetting ? "초기화 중..." : "로그인이 안 되면 여기를 눌러 초기화해보세요"}
+              </button>
+            </div>
+          )}
           <button
             onClick={() => {
               setMode((m) => (m === "signin" ? "signup" : "signin"));
@@ -91,6 +139,7 @@ export default function LoginForm() {
           >
             {mode === "signin" ? "계정이 없으신가요? 회원가입" : "이미 계정이 있으신가요? 로그인"}
           </button>
+          {swInfo && <p className="whitespace-pre-line text-[10px] text-muted">{swInfo}</p>}
         </div>
       )}
     </main>
