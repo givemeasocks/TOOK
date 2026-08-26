@@ -6,12 +6,12 @@ const SLIDES: { image: string; title: string; text: string }[] = [
   {
     image: "/character/onboarding-01-shy-bangs.svg",
     title: "안녕, 난 쥴라스야",
-    text: "여기 사는 말이야 🐴 어이 거기, 귀여운 내 앞머리로 너무 쳐다보지 말고 내 얘기에 집중하라구! 💢",
+    text: "여기 사는 말이야 🐴 어이 거기, 귀여운 내 앞머리만 너무 쳐다보지 말고 얘기에 집중하라구! 💢",
   },
   {
     image: "/character/onboarding-02-drawers.svg",
     title: "여기, 내 서랍장이야",
-    text: "앞으로 뭐든 툭 던져봐. 내가 멋진 서랍명을 지어주겠지만, 마음에 안 들면 직접 만들어도 되고, 한 메모를 여러 서랍에 같이 넣어도 돼.",
+    text: "앞으로 뭐든 툭 던져봐. 내가 멋진 서랍명을 지어주겠지만, 마음에 안 들면 직접 만들어도 되고, 한 메모를 여러 서랍에 넣어도 돼.",
   },
   {
     image: "/character/onboarding-03-photo-toss.svg",
@@ -21,22 +21,22 @@ const SLIDES: { image: string; title: string; text: string }[] = [
   {
     image: "/character/onboarding-04-telepathy.svg",
     title: "서랍, 같이 채우면 더 재밌어",
-    text: "친구 이메일로 초대하면 같은 서랍을 같이 써. 누가 방금 뭘 넣었는지 바로 알려주고, 각자 몇 개 채웠는지도 살짝 보여줄게. 같은 날 둘 다 저장하면? 텔레파시 통했다고 호들갑 떨어줄게.",
+    text: "친구 이메일로 초대하면 같은 서랍을 같이 써. 누가 방금 뭘 넣었는지 알려주고, 각자 몇 개 채웠는지도 살짝 보여줄게. 같은 날 둘 다 저장하면? 우리 텔레파시 통한 거다!",
   },
   {
     image: "/character/onboarding-05-wide-view.svg",
     title: "잊어버린 것도 내가 콕 찔러줄게",
-    text: "던져두고 까먹은 거, 나는 다 기억해. 나 시야가 350도라 놓치는 게 별로 없거든. 너무 쌓인 서랍 있으면 알려줄게.",
+    text: "던져두고 까먹은 거, 나는 다 보고 있어. 내 시야는 350도라 놓치는 게 별로 없거든. 먼지 쌓인 서랍 있으면 알려줄게.",
   },
   {
     image: "/character/onboarding-06-diary.svg",
     title: "일기도 가볍게 툭",
-    text: "\"일기\" 서랍 하나 만들어봐. 기분이랑 같이 툭 적어두면, 캘린더에서 한 달치를 한눈에 볼 수 있어.",
+    text: "\"일기\" 서랍 하나 만들어봐. 기분이랑 같이 툭 적어두면, 캘린더에서 한 달치를 편하게 볼 수 있어.",
   },
   {
     image: "/character/onboarding-07-hidden-feature.svg",
     title: "꾹 누르면 숨은 기능이 나와",
-    text: "서랍을 길게 누르면 이름 바꾸기·삭제가 떠. 같이 쓰는 서랍이면 친구 메모를 꾹 눌러서 이모지 하나로 반응도 남길 수 있어.",
+    text: "서랍을 길게 누르면 이름 바꾸기·삭제가 떠. 같이 쓰는 서랍이면 친구 메모를 꾹 눌러서 이모지로 반응도 남길 수 있어.",
   },
   {
     image: "/character/onboarding-08-fuzzy-search.svg",
