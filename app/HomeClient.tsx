@@ -387,6 +387,16 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
     setRecentMemos(memos);
   }
 
+  // 꺼내기 탭이 검색 전에도 텅 비어 보이지 않도록 — 오래(30일+) 아무도 안 열어본 메모를 보여준다.
+  const [forgottenMemos, setForgottenMemos] = useState<Memo[]>([]);
+
+  async function loadForgottenMemos() {
+    const res = await fetch("/api/memos?forgotten=1");
+    if (!res.ok) return;
+    const { memos } = await res.json();
+    setForgottenMemos(memos);
+  }
+
   const [mergeSuggestions, setMergeSuggestions] = useState<{ into: string; from: string[] }[] | null>(null);
   const [mergeChecking, setMergeChecking] = useState(false);
   const [mergingKey, setMergingKey] = useState<string | null>(null);
@@ -427,6 +437,7 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
   useEffect(() => {
     loadDrawers();
     loadRecentMemos();
+    loadForgottenMemos();
   }, []);
 
   const [query, setQuery] = useState("");
@@ -683,6 +694,7 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
     setMaybe((list) => list.filter((m) => m.id !== memo.id));
     setDrawerMemos((list) => list.filter((m) => m.id !== memo.id));
     setRecentMemos((list) => list.filter((m) => m.id !== memo.id));
+    setForgottenMemos((list) => list.filter((m) => m.id !== memo.id));
     await loadDrawers();
   }
 
@@ -756,7 +768,7 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
     setReactionPickerFor(null);
   }
 
-  // 13번: 공동 서랍 메모 카드 롱프레스 → 이모지 1개(👀 😂 ❤️) 반응. 텍스트 댓글 아님, 사람당 1개.
+  // 13번: 공동 서랍 메모 카드 롱프레스 → 이모지 1개(💩 ❤️ 😂 👏 🧟) 반응. 텍스트 댓글 아님, 사람당 1개.
   const [drawerReactions, setDrawerReactions] = useState<Map<string, { userId: string; emoji: string }[]>>(new Map());
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
   const reactionPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1370,7 +1382,7 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
                         )}
                         {reactionPickerFor === m.id && (
                           <div className="mt-1.5 flex gap-1.5 rounded-full bg-surface px-2 py-1">
-                            {["👀", "😂", "❤️"].map((emoji) => (
+                            {["💩", "❤️", "😂", "👏", "🧟"].map((emoji) => (
                               <button
                                 key={emoji}
                                 onClick={() => pickReaction(m.id, emoji)}
@@ -1768,6 +1780,22 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {!searched && forgottenMemos.length > 0 && (
+          <div className="mt-6">
+            <ResultGroup
+              title="오래 안 열어본 메모"
+              memos={forgottenMemos}
+              drawers={drawers}
+              onCategoryChange={handleCategoryChange}
+              onDelete={handleDeleteMemo}
+              askText={askText}
+              expandedIds={expandedIds}
+              onToggleExpand={toggleExpand}
+              muted
+            />
           </div>
         )}
 

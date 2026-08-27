@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { EMOTIONS, emojiFor, characterFor } from "@/lib/emotions";
+import { kstDateString } from "@/lib/kstDate";
 
 type EntryRow = { entry_date: string; emotion: string; source: "auto" | "manual" };
 type DayMemo = { id: string; content: string; summary: string | null; created_at: string; category: string | null };
@@ -28,6 +29,7 @@ export default function EmotionCalendar() {
   const [dayEvents, setDayEvents] = useState<DayEvent[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [expandedMemoIds, setExpandedMemoIds] = useState<Set<string>>(new Set());
 
   async function loadMonth(d: Date) {
     setLoading(true);
@@ -54,6 +56,7 @@ export default function EmotionCalendar() {
   async function openDay(dateKey: string) {
     setSelectedDate(dateKey);
     setDayLoading(true);
+    setExpandedMemoIds(new Set());
     try {
       const res = await fetch(`/api/emotions?date=${dateKey}`);
       if (!res.ok) return;
@@ -71,10 +74,30 @@ export default function EmotionCalendar() {
     setDayEntry(null);
     setDayMemos([]);
     setDayEvents([]);
+    setExpandedMemoIds(new Set());
   }
 
+  // 원문 펼치기(넣기 화면과 같은 패턴) — 펼친 순간이 "열람"이라 서버에도 알려준다.
+  function toggleMemoExpand(id: string) {
+    setExpandedMemoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        fetch(`/api/memos/${id}/view`, { method: "POST" }).catch(() => {});
+      }
+      return next;
+    });
+  }
+
+  // 누르는 즉시 화면부터 바꾸고(체감 속도), 저장은 뒤에서 진행해서 실패할 때만 되돌린다.
   async function setEmotion(emotion: string) {
     if (!selectedDate) return;
+    const previousEntry = dayEntry;
+    const optimistic: EntryRow = { entry_date: selectedDate, emotion, source: "manual" };
+    setDayEntry(optimistic);
+    setEntries((prev) => new Map(prev).set(selectedDate, optimistic));
     setSaving(true);
     try {
       const res = await fetch("/api/emotions", {
@@ -82,9 +105,15 @@ export default function EmotionCalendar() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: selectedDate, emotion }),
       });
-      if (!res.ok) return;
-      setDayEntry({ entry_date: selectedDate, emotion, source: "manual" });
-      setEntries((prev) => new Map(prev).set(selectedDate, { entry_date: selectedDate, emotion, source: "manual" }));
+      if (!res.ok) throw new Error("저장 실패");
+    } catch {
+      setDayEntry(previousEntry);
+      setEntries((prev) => {
+        const next = new Map(prev);
+        if (previousEntry) next.set(selectedDate, previousEntry);
+        else next.delete(selectedDate);
+        return next;
+      });
     } finally {
       setSaving(false);
     }
@@ -95,6 +124,7 @@ export default function EmotionCalendar() {
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: (number | null)[] = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  const todayKey = kstDateString();
 
   return (
     <section className="rounded-lg border border-hairline bg-canvas p-6 shadow-[var(--shadow-1)]">
@@ -139,13 +169,16 @@ export default function EmotionCalendar() {
           const dateKey = toDateKey(year, month, day);
           const entry = entries.get(dateKey);
           const hasEvent = eventDates.has(dateKey);
+          const isToday = dateKey === todayKey;
           return (
             <button
               key={dateKey}
               onClick={() => openDay(dateKey)}
-              className="relative flex aspect-square flex-col items-center justify-center rounded-md text-xs text-ink hover:bg-surface"
+              className={`relative flex aspect-square flex-col items-center justify-center rounded-md text-xs text-ink hover:bg-surface ${
+                isToday ? "bg-primary/10 ring-1 ring-inset ring-primary" : ""
+              }`}
             >
-              <span className="text-[10px] text-muted">{day}</span>
+              <span className={`text-[10px] ${isToday ? "font-bold text-primary" : "text-muted"}`}>{day}</span>
               <span className="text-base leading-none">{entry ? emojiFor(entry.emotion) : ""}</span>
               {hasEvent && <span className="absolute bottom-1 h-1 w-1 rounded-full bg-primary" />}
             </button>
@@ -221,7 +254,17 @@ export default function EmotionCalendar() {
                 <div className="flex flex-col gap-2">
                   {dayMemos.map((m) => (
                     <div key={m.id} className="rounded-lg border border-hairline p-3">
-                      <p className="text-sm text-ink">{m.summary ?? m.content}</p>
+                      <p
+                        className={m.summary ? "cursor-pointer text-sm text-ink" : "text-sm text-ink"}
+                        onClick={m.summary ? () => toggleMemoExpand(m.id) : undefined}
+                      >
+                        {m.summary ?? m.content}
+                      </p>
+                      {m.summary && expandedMemoIds.has(m.id) && (
+                        <p className="mt-2 whitespace-pre-line border-t border-hairline pt-2 text-sm text-steel">
+                          {m.content}
+                        </p>
+                      )}
                       {m.category && <p className="mt-1 text-xs text-muted">{m.category}</p>}
                     </div>
                   ))}

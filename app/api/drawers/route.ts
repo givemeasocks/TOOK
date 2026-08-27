@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
 import {
-  countMemosAndMembers,
+  drawerMemberStats,
+  drawerMemoStats,
   findDrawerIdByName,
-  latestMemoAuthors,
-  latestMemoPreviews,
   listMemberDrawers,
-  memberEmailsByDrawer,
   nicknamesByUserId,
 } from "@/lib/drawers";
 
@@ -16,11 +14,9 @@ export async function GET() {
 
   const memberDrawers = listDeduped(await listMemberDrawers(supabase, user.id));
   const ids = memberDrawers.map((d) => d.id);
-  const [{ memoCounts, memberCounts }, previews, latestAuthors, emailsByDrawer] = await Promise.all([
-    countMemosAndMembers(supabase, ids),
-    latestMemoPreviews(supabase, ids),
-    latestMemoAuthors(supabase, ids),
-    memberEmailsByDrawer(supabase, ids),
+  const [{ memoCounts, latestAuthors, previews }, { memberCounts, emailsByDrawer }] = await Promise.all([
+    drawerMemoStats(supabase, ids),
+    drawerMemberStats(supabase, ids),
   ]);
   const otherAuthorIds = [...latestAuthors.values()].map((v) => v.userId).filter((id): id is string => !!id);
   const nicknames = await nicknamesByUserId(supabase, otherAuthorIds);

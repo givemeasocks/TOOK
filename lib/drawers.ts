@@ -61,10 +61,11 @@ export async function listMemberDrawers(
   });
 }
 
-/** 주어진 서랍 id들의 (user_id → invited_email) 맵을, 서랍별로 묶어서 돌려준다. 작성자 표기/기여 카운트에 씀. */
-export async function memberEmailsByDrawer(supabase: SupabaseClient, drawerIds: string[]) {
-  const byDrawer = new Map<string, Map<string, string>>();
-  if (drawerIds.length === 0) return byDrawer;
+/** 주어진 서랍 id들의 멤버 수와 (user_id → invited_email) 맵을 drawer_members 테이블 한 번만 훑어서 계산한다. */
+export async function drawerMemberStats(supabase: SupabaseClient, drawerIds: string[]) {
+  const memberCounts = new Map<string, number>();
+  const emailsByDrawer = new Map<string, Map<string, string>>();
+  if (drawerIds.length === 0) return { memberCounts, emailsByDrawer };
 
   const { data, error } = await supabase
     .from("drawer_members")
@@ -74,11 +75,12 @@ export async function memberEmailsByDrawer(supabase: SupabaseClient, drawerIds: 
   if (error) throw new Error(error.message);
 
   for (const row of (data ?? []) as { drawer_id: string; user_id: string | null; invited_email: string }[]) {
+    memberCounts.set(row.drawer_id, (memberCounts.get(row.drawer_id) ?? 0) + 1);
     if (!row.user_id) continue;
-    if (!byDrawer.has(row.drawer_id)) byDrawer.set(row.drawer_id, new Map());
-    byDrawer.get(row.drawer_id)!.set(row.user_id, row.invited_email);
+    if (!emailsByDrawer.has(row.drawer_id)) emailsByDrawer.set(row.drawer_id, new Map());
+    emailsByDrawer.get(row.drawer_id)!.set(row.user_id, row.invited_email);
   }
-  return byDrawer;
+  return { memberCounts, emailsByDrawer };
 }
 
 /** 주어진 user_id들의 닉네임을 (user_id → nickname) 맵으로 돌려준다. 프로필이 아직 없으면 그 user_id는 맵에서 빠짐. */
@@ -96,64 +98,35 @@ export async function nicknamesByUserId(supabase: SupabaseClient, userIds: strin
   return map;
 }
 
-/** 주어진 서랍 id들의 가장 최근 메모 작성자(user_id)와 생성 시각을 맵으로 돌려준다. */
-export async function latestMemoAuthors(supabase: SupabaseClient, drawerIds: string[]) {
-  const latest = new Map<string, { userId: string | null; createdAt: string }>();
-  if (drawerIds.length === 0) return latest;
-
-  const { data, error } = await supabase
-    .from("memos")
-    .select("drawer_id, user_id, created_at")
-    .in("drawer_id", drawerIds)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-
-  for (const row of (data ?? []) as { drawer_id: string; user_id: string | null; created_at: string }[]) {
-    if (!latest.has(row.drawer_id)) {
-      latest.set(row.drawer_id, { userId: row.user_id, createdAt: row.created_at });
-    }
-  }
-  return latest;
-}
-
-/** 주어진 서랍 id들의 메모 개수 / 멤버 개수를 한 번씩만 조회해서 맵으로 돌려준다. */
-export async function countMemosAndMembers(supabase: SupabaseClient, drawerIds: string[]) {
+/**
+ * 주어진 서랍 id들의 메모 개수 / 최신 작성자 / 최신 미리보기를 memos 테이블 한 번만 훑어서 계산한다.
+ * (예전엔 이 셋을 각각 따로 조회해서 같은 테이블을 세 번 스캔했음 — 서랍/메모가 늘수록 느려지는 원인이었어서 합침)
+ */
+export async function drawerMemoStats(supabase: SupabaseClient, drawerIds: string[]) {
   const memoCounts = new Map<string, number>();
-  const memberCounts = new Map<string, number>();
-  if (drawerIds.length === 0) return { memoCounts, memberCounts };
-
-  const [{ data: memos, error: memosError }, { data: members, error: membersError }] = await Promise.all([
-    supabase.from("memos").select("drawer_id").in("drawer_id", drawerIds),
-    supabase.from("drawer_members").select("drawer_id").eq("status", "accepted").in("drawer_id", drawerIds),
-  ]);
-  if (memosError) throw new Error(memosError.message);
-  if (membersError) throw new Error(membersError.message);
-
-  for (const row of (memos ?? []) as { drawer_id: string }[]) {
-    memoCounts.set(row.drawer_id, (memoCounts.get(row.drawer_id) ?? 0) + 1);
-  }
-  for (const row of (members ?? []) as { drawer_id: string }[]) {
-    memberCounts.set(row.drawer_id, (memberCounts.get(row.drawer_id) ?? 0) + 1);
-  }
-  return { memoCounts, memberCounts };
-}
-
-/** 주어진 서랍 id들의 최신 메모 한 줄 미리보기(요약 없으면 본문 앞부분)를 맵으로 돌려준다. */
-export async function latestMemoPreviews(supabase: SupabaseClient, drawerIds: string[]) {
+  const latestAuthors = new Map<string, { userId: string | null; createdAt: string }>();
   const previews = new Map<string, string>();
-  if (drawerIds.length === 0) return previews;
+  if (drawerIds.length === 0) return { memoCounts, latestAuthors, previews };
 
   const { data, error } = await supabase
     .from("memos")
-    .select("drawer_id, summary, content, created_at")
+    .select("drawer_id, user_id, summary, content, created_at")
     .in("drawer_id", drawerIds)
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
 
-  for (const row of (data ?? []) as { drawer_id: string; summary: string | null; content: string }[]) {
-    if (!previews.has(row.drawer_id)) {
+  for (const row of (data ?? []) as {
+    drawer_id: string;
+    user_id: string | null;
+    summary: string | null;
+    content: string;
+    created_at: string;
+  }[]) {
+    memoCounts.set(row.drawer_id, (memoCounts.get(row.drawer_id) ?? 0) + 1);
+    if (!latestAuthors.has(row.drawer_id)) {
+      latestAuthors.set(row.drawer_id, { userId: row.user_id, createdAt: row.created_at });
       previews.set(row.drawer_id, row.summary ?? row.content.slice(0, 40));
     }
   }
-  return previews;
+  return { memoCounts, latestAuthors, previews };
 }

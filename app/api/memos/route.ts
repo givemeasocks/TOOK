@@ -60,6 +60,9 @@ export async function POST(request: NextRequest) {
   });
 }
 
+// 리마인드 cron(app/api/cron/reminders)의 "묵혀둔 것" 기준과 동일 — 저장 30일+미열람.
+const FORGOTTEN_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+
 export async function GET(request: NextRequest) {
   const { supabase, user } = await requireUser();
   if (!user) return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
@@ -67,6 +70,29 @@ export async function GET(request: NextRequest) {
   const category = request.nextUrl.searchParams.get("category");
   const limitParam = request.nextUrl.searchParams.get("limit");
   const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 0, 1), 50) : null;
+
+  // 꺼내기 탭 빈 화면용: 내가 속한 서랍 중 오래(30일+) 아무도 안 열어본 메모들.
+  if (request.nextUrl.searchParams.get("forgotten")) {
+    const drawerIds = (await listMemberDrawers(supabase, user.id)).map((d) => d.id);
+    if (drawerIds.length === 0) return NextResponse.json({ memos: [] });
+
+    const cutoff = new Date(Date.now() - FORGOTTEN_AFTER_MS).toISOString();
+    const { data, error } = await supabase
+      .from("memos")
+      .select("id, content, summary, category_edited, source, created_at, user_id, drawer:drawers(name)")
+      .in("drawer_id", drawerIds)
+      .is("viewed_at", null)
+      .lte("created_at", cutoff)
+      .order("created_at", { ascending: true })
+      .limit(limit ?? 5)
+      .returns<
+        { id: string; content: string; summary: string | null; category_edited: boolean; source: string; created_at: string; user_id: string | null; drawer: { name: string } | null }[]
+      >();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const memos = (data ?? []).map(({ drawer, ...rest }) => ({ ...rest, category: drawer?.name ?? null }));
+    return NextResponse.json({ memos });
+  }
 
   let drawerId: string | null = null;
   if (category) {

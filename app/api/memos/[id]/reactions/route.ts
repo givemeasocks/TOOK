@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/serverClient";
 
-const ALLOWED_EMOJI = ["👀", "😂", "❤️"];
+const ALLOWED_EMOJI = ["💩", "❤️", "😂", "👏", "🧟"];
 
 /** 롱프레스로 이모지 1개를 남긴다(13번). 사람당 메모당 1개만 — 다시 누르면 덮어쓰기. */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

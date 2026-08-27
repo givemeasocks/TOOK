@@ -6,12 +6,12 @@ const SLIDES: { image: string; title: string; text: string }[] = [
   {
     image: "/character/onboarding-01-shy-bangs.svg",
     title: "안녕, 난 쥴라스야",
-    text: "여기 사는 말이야 🐴 어이 거기, 귀여운 내 앞머리만 너무 쳐다보지 말고 얘기에 집중하라구! 💢",
+    text: "여기 사는 말이야 🐴 어이 거기, 귀여운 내 앞머리만 너무 쳐다보지 말고 얘기에 집중하라구! 💢 집중 못한 아이는 우측 상단에서 내 멋진 설명을 다시 볼 수 있게 해뒀어.",
   },
   {
     image: "/character/onboarding-02-drawers.svg",
     title: "여기, 내 서랍장이야",
-    text: "앞으로 뭐든 툭 던져봐. 내가 멋진 서랍명을 지어주겠지만, 마음에 안 들면 직접 만들어도 되고, 한 메모를 여러 서랍에 넣어도 돼.",
+    text: "앞으로 뭐든 툭 던져봐. 내용을 분석해서 멋진 서랍명을 지어줄게. 물론 마음에 안 들면 직접 만들어도 되고, 한 메모를 여러 서랍에 중복해서 넣어도 돼.",
   },
   {
     image: "/character/onboarding-03-photo-toss.svg",
@@ -21,7 +21,7 @@ const SLIDES: { image: string; title: string; text: string }[] = [
   {
     image: "/character/onboarding-04-telepathy.svg",
     title: "서랍, 같이 채우면 더 재밌어",
-    text: "친구 이메일로 초대하면 같은 서랍을 같이 써. 누가 방금 뭘 넣었는지 알려주고, 각자 몇 개 채웠는지도 살짝 보여줄게. 같은 날 둘 다 저장하면? 우리 텔레파시 통한 거다!",
+    text: "친구 이메일로 초대하면 같은 서랍을 같이 써. 누가 방금 뭘 넣었는지 알려주고, 각자 몇 개 채웠는지도 살짝 보여줄게. 같은 날 둘 다 저장하면? 우리 텔레파시 통한 거다! 재밌게 즐겨보라구",
   },
   {
     image: "/character/onboarding-05-wide-view.svg",
@@ -41,12 +41,12 @@ const SLIDES: { image: string; title: string; text: string }[] = [
   {
     image: "/character/onboarding-08-fuzzy-search.svg",
     title: "뭐였더라... 싶을 때",
-    text: "정확한 단어 몰라도 괜찮아. \"집안일 꿀팁\"처럼 대충 쳐도, '꺼내기'에서 관련된 메모를 알아서 찾아줄게.",
+    text: "정확한 단어 몰라도 괜찮아. \"집안일 꿀팁\"처럼 대충 쳐도, '꺼내기'에서 관련된 메모를 모조리 찾아줄게. 툭 던져두고 잊은 메모도 내가 다 기억하고 있으니까 걱정마",
   },
   {
     image: "/character/onboarding-09-see-you-again.svg",
     title: "이제 진짜 시작이야",
-    text: "아 참, 닉네임은 계정 메뉴에서 언제든 바꿀 수 있어. 자주 놀러 와 줄 거지? 사실 나, 장발이 꿈이거든. 네가 자주 찾아주면 개발자가 미용실에 데려가줄지도 몰라. 아무튼, 앞으로 잘 부탁해. 자주 보자!",
+    text: "아 참, 닉네임은 계정 메뉴에서 언제든 바꿀 수 있어. 자주 놀러 와 줄 거지? 사실 나.. 장발이 꿈이거든. 네가 자주 찾아주면 개발자가 미용실에 데려가줄지도 모르잖아! 앞으로 잘 부탁해. 자주 보자!",
   },
 ];
 

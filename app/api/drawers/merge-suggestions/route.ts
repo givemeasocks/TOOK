@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ai } from "@/lib/ai";
 import { requireUser } from "@/lib/supabase/serverClient";
-import { countMemosAndMembers, listMemberDrawers } from "@/lib/drawers";
+import { drawerMemoStats, listMemberDrawers } from "@/lib/drawers";
 
 /** PRD 7.5 과분할 방지: 현재 서랍 목록을 보고 병합할 만한 것들을 LLM이 제안한다. */
 export async function GET() {
@@ -13,7 +13,7 @@ export async function GET() {
     return NextResponse.json({ suggestions: [] });
   }
 
-  const { memoCounts } = await countMemosAndMembers(
+  const { memoCounts } = await drawerMemoStats(
     supabase,
     drawers.map((d) => d.id)
   );
