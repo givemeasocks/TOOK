@@ -51,12 +51,22 @@ const FIXED_CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
   "미분류": { bg: "#D8D0C4", text: "#4a4234" },
 };
 
+// 5개뿐이면 서랍이 조금만 늘어도 색이 겹쳐서 단조로워 보임 — 같은 톤(차분한 파스텔+어두운 글자)
+// 그대로 유지하면서 색상 종류(색상환 커버리지)만 13개로 넓힘.
 const HASH_CATEGORY_PALETTE = [
-  { bg: "#D6D9C0", text: "#4a4d38" },
-  { bg: "#E0C7B0", text: "#5c4a30" },
-  { bg: "#C7D0D6", text: "#33404d" },
-  { bg: "#DCC3B8", text: "#5c4030" },
-  { bg: "#D3C6A6", text: "#4a4234" },
+  { bg: "#D6D9C0", text: "#4a4d38" }, // 세이지
+  { bg: "#E0C7B0", text: "#5c4a30" }, // 테라코타
+  { bg: "#C7D0D6", text: "#33404d" }, // 청회색
+  { bg: "#DCC3B8", text: "#5c4030" }, // 더스티로즈
+  { bg: "#D3C6A6", text: "#4a4234" }, // 카키
+  { bg: "#E3B9B0", text: "#66352b" }, // 코랄
+  { bg: "#E0CB9A", text: "#5f4a1e" }, // 머스타드
+  { bg: "#B9D6C9", text: "#2f5c48" }, // 민트
+  { bg: "#B4CFD1", text: "#2c525a" }, // 시안
+  { bg: "#C2C6DE", text: "#3c3f66" }, // 페리윙클
+  { bg: "#D3C0DA", text: "#533a5c" }, // 라벤더
+  { bg: "#E3C0CE", text: "#66324a" }, // 로즈핑크
+  { bg: "#D2CFC9", text: "#4a463f" }, // 웜그레이
 ];
 
 // 공동 서랍 상세의 "같이 채운 지 N일째" 문구용 (item 12). 만든 날 자체를 1일째로 센다.
