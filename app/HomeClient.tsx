@@ -1783,19 +1783,36 @@ export default function HomeClient({ userEmail, userNickname }: { userEmail: str
           </div>
         )}
 
-        {!searched && forgottenMemos.length > 0 && (
+        {/* 오래 안 열어본 메모가 없으면(자주 쓰는 사람일수록 그럴 확률이 높음) 최근 메모로 대체 — 검색 전 화면이 비어 보이지 않게. */}
+        {!searched && (
           <div className="mt-6">
-            <ResultGroup
-              title="오래 안 열어본 메모"
-              memos={forgottenMemos}
-              drawers={drawers}
-              onCategoryChange={handleCategoryChange}
-              onDelete={handleDeleteMemo}
-              askText={askText}
-              expandedIds={expandedIds}
-              onToggleExpand={toggleExpand}
-              muted
-            />
+            {forgottenMemos.length > 0 ? (
+              <ResultGroup
+                title="오래 안 열어본 메모"
+                memos={forgottenMemos}
+                drawers={drawers}
+                onCategoryChange={handleCategoryChange}
+                onDelete={handleDeleteMemo}
+                askText={askText}
+                expandedIds={expandedIds}
+                onToggleExpand={toggleExpand}
+                muted
+              />
+            ) : recentMemos.length > 0 ? (
+              <ResultGroup
+                title="최근에 넣은 것"
+                memos={recentMemos}
+                drawers={drawers}
+                onCategoryChange={handleCategoryChange}
+                onDelete={handleDeleteMemo}
+                askText={askText}
+                expandedIds={expandedIds}
+                onToggleExpand={toggleExpand}
+                muted
+              />
+            ) : (
+              <p className="text-sm text-steel">아직 찾아볼 메모가 없어요. 넣기 탭에서 먼저 몇 개 던져보세요.</p>
+            )}
           </div>
         )}
 
